@@ -13,7 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(FM1_SYNTH_API == 3, "FM1 synthesis API mismatch");
+_Static_assert(FM1_SYNTH_API == 4, "FM1 synthesis API mismatch");
 
 /* Each track owns one opaque engine; no DSP layout is part of the app. */
 static struct source {
@@ -280,26 +280,56 @@ unsigned groove_arp_enabled(unsigned track)
     return track < GROOVE_TRACKS ? arpeggio[track].enabled : 0;
 }
 static FM1_DSP_CODE void arp_restart(unsigned t);
-static FM1_DSP_CODE void engine_note(unsigned track, unsigned note, unsigned velocity)
+static struct groove_tuning tuning[GROOVE_TRACKS];
+static uint8_t alt_hold[GROOVE_TRACKS]; /* live state, never saved */
+int groove_tuning_set(unsigned track, const struct groove_tuning *t)
+{
+    if (track >= GROOVE_TRACKS || !t) return -1;
+    for (unsigned i = 0; i < GROOVE_TUNING_KEYS; ++i)
+        if (t->main[i] == -128 || t->alt[i] == -128) return -2;
+    tuning[track] = *t;
+    return 0;
+}
+void groove_tuning_get(unsigned track, struct groove_tuning *t)
+{
+    if (!t) return;
+    if (track < GROOVE_TRACKS) *t = tuning[track];
+    else memset(t, 0, sizeof *t);
+}
+void groove_tuning_alt_hold(unsigned track, unsigned on)
+{
+    if (track < GROOVE_TRACKS) alt_hold[track] = on != 0;
+}
+static FM1_DSP_CODE void engine_note(unsigned track, unsigned note, unsigned velocity, int cents)
 {
     if (groove_source_type(track) == GROOVE_DX7) {
         uint8_t m[3] = {(uint8_t)(velocity ? 0x90 : 0x80), (uint8_t)note, (uint8_t)velocity};
         if (sources[track].fm)
-            (void)synth_dx7_midi(sources[track].fm, sources[track].patch, m, 3);
+            (void)synth_dx7_midi_tuned(sources[track].fm, sources[track].patch, m, 3, cents);
     } else if (groove_source_type(track) == GROOVE_PSG) {
         if (sources[track].psg)
-            psg_note(sources[track].psg, note, velocity);
+            psg_note(sources[track].psg, note, velocity, cents);
     } else if (groove_source_type(track) == GROOVE_PLUCK) {
         if (sources[track].pluck)
-            pluck_note(sources[track].pluck, note, velocity);
+            pluck_note(sources[track].pluck, note, velocity, cents);
     } else {
         bass303_bank_t *b = sources[track].bass;
         if (!b)
             return;
-        bass303_bank_note(b, tracks[track].controls.mono, note, velocity);
+        bass303_bank_note(b, tracks[track].controls.mono, note, velocity, cents);
     }
 }
+/* Live notes (sequenced == 0) take alt from the track's alt hold; sequenced and
+ * arpeggiated notes pass the step's GROOVE_STEP_ALT through groove_note_ex. */
 FM1_DSP_CODE void groove_note(unsigned track, unsigned note, unsigned velocity, int sequenced)
+{
+    groove_note_ex(track, note, velocity, sequenced, !sequenced && track < GROOVE_TRACKS && alt_hold[track]);
+}
+FM1_DSP_CODE unsigned groove_alt_held(unsigned track)
+{
+    return track < GROOVE_TRACKS && alt_hold[track];
+}
+FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocity, int sequenced, unsigned alt)
 {
     if (track >= GROOVE_TRACKS || note > 127 || velocity > 127)
         return;
@@ -323,7 +353,7 @@ FM1_DSP_CODE void groove_note(unsigned track, unsigned note, unsigned velocity, 
         }
         if (!live[track][note]) ++arpeggio[track].held;
         if (live[track][note] < 255) ++live[track][note];
-        arpeggio[track].velocity[note] = (uint8_t)velocity;
+        arpeggio[track].velocity[note] = (uint8_t)(velocity | (alt ? 128U : 0U)); /* bit 7: pressed with alt */
         arpeggio[track].latched = 1;
     } else if (live[track][note]) {
         --live[track][note];
@@ -345,8 +375,9 @@ FM1_DSP_CODE void groove_note(unsigned track, unsigned note, unsigned velocity, 
     }
     unsigned next = (!arpeggio[track].enabled && live[track][note]) ||
                     (seq_note[track].bits[note >> 3] & (1U << (note & 7U))) || arpeggio[track].note == note;
-    if (!held && next) engine_note(track, note, velocity);
-    else if (held && !next) engine_note(track, note, 0);
+    int cents = (alt ? tuning[track].alt : tuning[track].main)[note % 12U];
+    if (!held && next) engine_note(track, note, velocity, cents);
+    else if (held && !next) engine_note(track, note, 0, 0);
 }
 static FM1_DSP_CODE void arp_restart(unsigned t)
 {
@@ -442,10 +473,14 @@ static FM1_DSP_CODE void arp_next(unsigned t)
         r ^= r << 13; r ^= r >> 17; r ^= r << 5;
         arpeggio[t].random = r; index = r % count;
     }
-    unsigned note = notes[index], velocity = 100;
+    unsigned note = notes[index], velocity = 100, alt = 0;
     for (unsigned oct = 0; oct <= octaves && oct * 12 <= note; ++oct)
-        if (arpeggio[t].velocity[note - oct * 12]) { velocity = arpeggio[t].velocity[note - oct * 12]; break; }
-    groove_note(t, note, velocity, 2);
+        if (arpeggio[t].velocity[note - oct * 12]) {
+            velocity = arpeggio[t].velocity[note - oct * 12] & 127U;
+            alt = arpeggio[t].velocity[note - oct * 12] >> 7;
+            break;
+        }
+    groove_note_ex(t, note, velocity, 2, alt);
     arpeggio[t].started = 1;
     if (mode == 1) index = index ? index - 1 : count - 1;
     else if (mode == 2 && count > 1) {
@@ -637,7 +672,7 @@ static FM1_DSP_CODE unsigned message(unsigned track, const uint8_t *m, size_t n)
                 live[track][note] = 0;
                 arpeggio[track].velocity[note] = 0;
                 if (!(seq_note[track].bits[note >> 3] & (1U << (note & 7U))))
-                    engine_note(track, note, 0);
+                    engine_note(track, note, 0, 0);
             }
     } else if (type == 0xb0 && m[1] == 1 && groove_source_type(track) != GROOVE_DX7 &&
                groove_source_type(track) != GROOVE_303) {
@@ -837,6 +872,8 @@ __attribute__((cold, minsize)) void fm1_web_init(void)
 {
     output_level = 0;
     master_adc = 0xffffU;
+    memset(tuning, 0, sizeof tuning);
+    memset(alt_hold, 0, sizeof alt_hold);
     arp_defaults();
     memset(live, 0, sizeof live);
     memset(seq_note, 0, sizeof seq_note);

@@ -74,7 +74,7 @@ __attribute__((cold, minsize)) int groove_sequence_valid(const struct groove_pro
                     return 0; /* Sampler patterns address only the eight active pads. */
             } else {
                 unsigned chord = v->drums & 31U;
-                if ((v->drums & 0xe000U) || chord > 16 || (chord && !o->chord[chord - 1][0]))
+                if ((v->drums & 0xc000U /* bits 14..15 reserved; bit 13 = alt (GROOVE_STEP_ALT) */) || chord > 16 || (chord && !o->chord[chord - 1][0]))
                     return 0;
                 if (chord && v->note + o->chord[chord - 1][o->chord[chord - 1][0] - 1] > 127)
                     return 0;
@@ -226,7 +226,7 @@ static FM1_DSP_CODE void sequence_event(void)
                 for (unsigned k = 0; k < 8; ++k)
                     held |= c->held[i][k] == notes[n];
                 if (!held)
-                    groove_note(track, notes[n], v->velocity, 1);
+                    groove_note_ex(track, notes[n], v->velocity, 1, (v->drums >> 13) & 1U);
             }
         memcpy(c->held[i], notes, sizeof notes);
         c->tied[i] = (v->drums >> 12) & 1U;
@@ -700,6 +700,14 @@ __attribute__((cold, minsize)) void groove_sequence_setting_edit(unsigned settin
         options.count_in = (uint8_t)next;
     fm1_web_resume();
     groove_project_touch();
+}
+/* Live recording: the step's alt flag follows alt hold at note-on. */
+__attribute__((cold, minsize)) void groove_sequence_alt(unsigned track, unsigned step, unsigned alt)
+{
+    if (track >= 8 || step >= 64 || groove_pad_count(track)) return;
+    fm1_web_pause();
+    pattern[track][step].drums = (uint16_t)((pattern[track][step].drums & ~GROOVE_STEP_ALT) | (alt ? GROOVE_STEP_ALT : 0U));
+    fm1_web_resume();
 }
 __attribute__((cold, minsize)) int groove_sequence_chord(unsigned track, unsigned step, const uint8_t *notes, unsigned count,
                           unsigned velocity)

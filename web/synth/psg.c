@@ -23,7 +23,7 @@ FM1_DSP_CODE unsigned psg_get(const psg_t *p, unsigned parameter)
 }
 static FM1_DSP_CODE void tune(psg_t *p, unsigned voice)
 {
-    int32_t note = ((int32_t)p->voice[voice].note + (int)p->pot[2] - 24) * 65536 + p->bend;
+    int32_t note = ((int32_t)p->voice[voice].note + (int)p->pot[2] - 24) * 65536 + p->bend + p->voice[voice].tune;
     uint32_t hz = fm_note_hz_q16(note);
     uint64_t denominator = (uint64_t)16 * hz;
     unsigned period = (unsigned)((UINT64_C(1789772) * 65536 + denominator / 2) / denominator);
@@ -105,7 +105,7 @@ void psg_init(psg_t *p)
     for (unsigned i = 0; i < PSG_PARAMS; ++i)
         psg_set(p, i, params[i].def);
 }
-FM1_DSP_CODE void psg_note(psg_t *p, unsigned note, unsigned velocity)
+FM1_DSP_CODE void psg_note(psg_t *p, unsigned note, unsigned velocity, int cents)
 {
     if (note > 127 || velocity > 127)
         return;
@@ -136,6 +136,7 @@ FM1_DSP_CODE void psg_note(psg_t *p, unsigned note, unsigned velocity)
     }
     p->voice[slot].note = (uint8_t)note;
     p->voice[slot].down = 1;
+    p->voice[slot].tune = cents * 16384 / 25;
     p->voice[slot].age = ++p->age;
     p->voice[slot].gain = (int32_t)((int64_t)velocity * FM_Q30_ONE / 127);
     tune(p, slot);

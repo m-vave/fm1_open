@@ -21,7 +21,7 @@ int bass303_nparams(void) {return BASS303_NPARAMS;}
 int bass303_get(const bass303_t *b,int p) {return (unsigned)p<BASS303_NPARAMS?b->pot[p]:0;}
 static FM1_DSP_CODE void pitch_target(bass303_t *b) {
     float a=440.0f+((int)b->pot[BASS303_TUNE]-64)*.625f;
-    b->frequency=dsp_min(18000.0f,a*dsp_exp2(((float)b->note-69+(float)b->bend/65536.0f)/12));
+    b->frequency=dsp_min(18000.0f,a*dsp_exp2(((float)b->note-69+(float)(b->bend+b->tune)/65536.0f)/12));
 }
 FM1_DSP_CODE void bass303_set(bass303_t *b,int p,int v) {
     const fm1_param_t *desc=bass303_param(p);if(!desc)return;
@@ -73,8 +73,8 @@ FM1_DSP_CODE void bass303_init(bass303_t *b) {
     dsp_svf_set(&b->drive_pre,720,.7071f);
 }
 FM1_DSP_CODE void bass303_bend(bass303_t *b,int32_t bend) {b->bend=bend;if(b->started)pitch_target(b);}
-FM1_DSP_CODE void bass303_note_on(bass303_t *b,int note,int accent,int slide) {
-    b->note=note;b->accent_note=accent!=0;
+FM1_DSP_CODE void bass303_note_on(bass303_t *b,int note,int accent,int slide,int cents) {
+    b->note=note;b->tune=cents*16384/25;b->accent_note=accent!=0;
     b->release=dsp_decay(b->pot[BASS303_DRVTYPE]==2&&b->pot[BASS303_DRIVE]?(accent?.060f:.006f):(accent?.050f:.001f));
     pitch_target(b);
     if(!slide||!b->started){b->pitch=b->frequency;b->env=1;b->amp=1;}

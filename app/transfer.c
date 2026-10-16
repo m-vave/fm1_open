@@ -56,9 +56,11 @@ void groove_transfer_init(void)
 }
 static int transfer_begin(unsigned kind, unsigned target, unsigned size, unsigned writing)
 {
-    if (kind > 2 || (kind == 1 && (target >= GROOVE_TRACKS || size != 156)) ||
+    if (kind > 3 || (kind == 1 && (target >= GROOVE_TRACKS || size != 156)) ||
         (kind == 2 && (target >= GROOVE_TRACKS || size != sizeof(struct groove_preset))) ||
-        (!kind && (target || (size != GROOVE_PROJECT_BYTES && size != GROOVE_PROJECT_LEGACY_BYTES))))
+        (!kind && (target || (size != GROOVE_PROJECT_BYTES && size != GROOVE_PROJECT_LEGACY_BYTES &&
+                              (!writing || size != GROOVE_PROJECT_TUNED_BYTES)))) ||
+        (kind == 3 && (target || size != GROOVE_PROJECT_TUNED_BYTES)))
         return GROOVE_PROJECT_INVALID;
     if (transfer && transfer_size == size) {
         /* A new session replaces the old one; equal sizes need no new block. */
@@ -116,6 +118,8 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
     if (cmd == 11 && !n) {
         out[0] = (uint8_t)groove_samples_status();
         put32(out + 1, groove_samples_size());
+        /* Region size, not the new-bank cap: SDK clients require this exact value.
+         * groove_samples_begin rejects banks over GROOVE_SAMPLE_LIMIT. */
         put32(out + 5, GROOVE_SAMPLE_BYTES);
         *count = 9; return 0;
     }
@@ -141,7 +145,8 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
         return 0;
     }
     if (cmd == 1 && n == 2) {
-        unsigned size = data[0] == 2 ? sizeof(struct groove_preset) : data[0] == 1 ? 156 : GROOVE_PROJECT_BYTES;
+        unsigned size = data[0] == 2 ? sizeof(struct groove_preset) : data[0] == 1 ? 156
+                        : data[0] == 3 ? GROOVE_PROJECT_TUNED_BYTES : GROOVE_PROJECT_BYTES;
         r = transfer_begin(data[0], data[1], size, 0);
         if (!r) {
             r = data[0] == 2 ? groove_timbre_export(data[1], transfer, size)

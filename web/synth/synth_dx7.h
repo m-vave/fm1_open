@@ -39,6 +39,12 @@ int synth_dx7_midi(synth_dx7_t *synth,
                    uint8_t expanded_patch[SYNTH_DX7_EXPANDED_PATCH_BYTES],
                    const uint8_t *message,
                    size_t message_bytes);
+/* As synth_dx7_midi; a note-on sounds `cents` (whole cents, signed) from 12-TET. */
+int synth_dx7_midi_tuned(synth_dx7_t *synth,
+                         uint8_t expanded_patch[SYNTH_DX7_EXPANDED_PATCH_BYTES],
+                         const uint8_t *message,
+                         size_t message_bytes,
+                         int cents);
 int synth_dx7_lfo_reset(
     synth_dx7_t *synth,
     const uint8_t expanded_patch[SYNTH_DX7_EXPANDED_PATCH_BYTES]);

@@ -95,9 +95,9 @@ static FM1_DSP_DATA const u32 ampmodsenstab[] = {
     0, 4342338, 7171437, 16777216
 };
 
-FM1_DSP_CODE void dx7note_init(t_dx7note *this,u8 *patch,u8 midinote,u8 velocity)
+FM1_DSP_CODE void dx7note_init(t_dx7note *this,u8 *patch,u8 midinote,u8 velocity,int cents)
 {
-  int notelogfreq = 50857777 + (((int)midinote<<24) / 12);
+  int notelogfreq = 50857777 + (((int)midinote<<24) / 12) + (cents * (1<<24) / 1200);
   this->fixed_ops = this->freq_valid = 0;
   this->freq_pitch[0] = this->freq_pitch[1] = 0;
   for (int op = 0; op < FM_OP_CNT; op++) {

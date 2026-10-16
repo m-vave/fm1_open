@@ -13,7 +13,7 @@ static unsigned observed;
 enum { RECORD_QUEUE = 128 };
 static struct {
     unsigned read, write, overflow, changed, activity[GROOVE_TRACKS];
-    struct { uint8_t track, note, velocity, step; } event[RECORD_QUEUE];
+    struct { uint8_t track, note, velocity, step, alt; } event[RECORD_QUEUE];
 } queue;
 static struct {
     struct groove_step step[64];
@@ -179,6 +179,7 @@ FM1_DSP_CODE void groove_record_midi(const uint8_t *m, size_t n)
     queue.event[w].note = m[1];
     queue.event[w].velocity = type == 0x90 ? m[2] : 0;
     queue.event[w].step = (uint8_t)position;
+    queue.event[w].alt = (uint8_t)groove_alt_held(track);
     queue.write = next;
 }
 unsigned groove_midi_activity(unsigned track)
@@ -205,7 +206,7 @@ void groove_edit_poll(void)
          ++budget) {
         unsigned r = queue.read;
         unsigned t = queue.event[r].track, note = queue.event[r].note,
-                 velocity = queue.event[r].velocity, step = queue.event[r].step;
+                 velocity = queue.event[r].velocity, step = queue.event[r].step, alt = queue.event[r].alt;
         queue.read = (r + 1U) & (RECORD_QUEUE - 1U);
         if (!recording)
             continue;
@@ -244,6 +245,8 @@ void groove_edit_poll(void)
         }
         if (velocity && (count > 8 || groove_sequence_chord(t, step, notes, count, velocity)))
             edit_error = 2;
+        else if (velocity)
+            groove_sequence_alt(t, step, alt);
         if (stopped && was_held && !active && !velocity) {
             cursor[t] = (uint8_t)((cursor[t] + 1U) % groove_sequence_length(t));
             take_step[t] = 255;

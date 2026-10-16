@@ -33,6 +33,7 @@ struct synth_dx7
     u8 glide;         // 滑音量/时间 0-100(0=关)，全局；仅 mono 生效；恒定时间曲线
     u8 glide_finger;  // 0=持续(总从上一个音滑) 1=指法(仅legato滑)
     int last_midi;    // mono 上一次按下的音(滑音起点)；-1=无
+    int last_cents;   // 该音的调音偏移(音分)，滑音起点的一部分
     int *out;
     int *sum;
     int *scratch;
@@ -229,12 +230,13 @@ void synth_dx7_reset(synth_dx7_t *this)
 
 // 滑音：从旧音 src_midi 滑到新音 dst_pitch(对数域)。仅 mono、glide>0 时调用。
 // 恒定时间曲线：总时长 = glide*10 ms，与音程无关(音程越大滑得越快)。
-FM1_DSP_CODE static void glide_apply(t_dx7synth *this,int note,int src_midi,int dst_pitch)
+FM1_DSP_CODE static void glide_apply(t_dx7synth *this,int note,int src_midi,int dst_pitch,int dst_cents)
 {
-    if(!this->glide || src_midi < 0 || src_midi == dst_pitch) return;
+    if(!this->glide || src_midi < 0 || (src_midi == dst_pitch && this->last_cents == dst_cents)) return;
     /* Avoid undefined behavior from left-shifting a negative interval. */
     int delta = (int)(((long long)src_midi - dst_pitch) *
-                      (1LL << 24) / 12LL);
+                      (1LL << 24) / 12LL) +
+                (int)((long long)(this->last_cents - dst_cents) * (1LL << 24) / 1200);
     int mag = delta < 0 ? -delta : delta;
     int nblk = this->glide * 10 * this->fs /
                (1000 * SYNTH_DX7_BLOCK_SAMPLES);
@@ -302,7 +304,7 @@ FM1_DSP_CODE static void dx7synth_keyup(t_dx7synth *this,u8 *patch,u8 midi,u8 ch
     }
 }
 
-FM1_DSP_CODE static void dx7synth_keydown(t_dx7synth *this,u8 *patch,u8 midi,u8 channel,u8 vel)
+FM1_DSP_CODE static void dx7synth_keydown(t_dx7synth *this,u8 *patch,u8 midi,u8 channel,u8 vel,int cents)
 {
     int pitch = midi + patch[144] - 24;
     if(pitch >= 0 && pitch <= 127){
@@ -326,7 +328,7 @@ FM1_DSP_CODE static void dx7synth_keydown(t_dx7synth *this,u8 *patch,u8 midi,u8 
         this->note[note].keydown = true;
         this->note[note].sustained = this->sustain;
 
-        dx7note_init(&this->note[note].dx7note,patch,pitch,(vel*100)>>7);
+        dx7note_init(&this->note[note].dx7note,patch,pitch,(vel*100)>>7,cents);
         if(patch[136]) dx7note_oscsync(&this->note[note].dx7note);
 
         adsr_init(&this->note[note].env, &this->adsr);
@@ -346,8 +348,9 @@ FM1_DSP_CODE static void dx7synth_keydown(t_dx7synth *this,u8 *patch,u8 midi,u8 
             }
             // 持续模式(glide_finger=0)：总从上一个音滑；指法模式(=1)：仅 legato(上一个音仍按着)才滑
             if(!this->glide_finger || prev_held)
-                glide_apply(this,note,this->last_midi,pitch);
+                glide_apply(this,note,this->last_midi,pitch,cents);
             this->last_midi = pitch;
+            this->last_cents = cents;
         }
         this->note[note].live = true;
     }
@@ -390,6 +393,11 @@ FM1_DSP_CODE static void refresh_modulation(t_dx7synth *this)
 FM1_DSP_ENTRY int synth_dx7_midi(synth_dx7_t *handle, uint8_t *patch,
                    const uint8_t *buf, size_t buf_size)
 {
+    return synth_dx7_midi_tuned(handle, patch, buf, buf_size, 0);
+}
+FM1_DSP_ENTRY int synth_dx7_midi_tuned(synth_dx7_t *handle, uint8_t *patch,
+                   const uint8_t *buf, size_t buf_size, int cents)
+{
     t_dx7synth *this = handle;
     if (this == NULL || patch == NULL || buf == NULL || buf_size == 0U)
         return -1;
@@ -406,7 +414,7 @@ FM1_DSP_ENTRY int synth_dx7_midi(synth_dx7_t *handle, uint8_t *patch,
         if (buf_size >= 3) {
             if (buf[2]) {
                 if (!patch_valid(patch)) return -1;
-                dx7synth_keydown(this,patch,buf[1],channel,buf[2]);
+                dx7synth_keydown(this,patch,buf[1],channel,buf[2],cents);
             }
             else dx7synth_keyup(this,patch,buf[1],channel);
         }

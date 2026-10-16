@@ -22,7 +22,7 @@ const fm1_param_t *pluck_param(unsigned p) {return p<PLUCK_PARAMS?parameters+p:0
 size_t pluck_size(void) {return sizeof(pluck_t);}
 unsigned pluck_get(const pluck_t *p,unsigned k) {return k<PLUCK_PARAMS?p->pot[k]:0;}
 static FM1_DSP_CODE void retune(pluck_t *p,pluck_voice_t *v) {
-    float hz=dsp_clamp(440*dsp_exp2(((int)v->note+(int)p->pot[2]-93+p->bend/65536.0f)/12),2,11025);
+    float hz=dsp_clamp(440*dsp_exp2(((int)v->note+(int)p->pot[2]-93+(p->bend+v->tune)/65536.0f)/12),2,11025);
     float period=44100/hz;v->rate=dsp_min(1,1020/period);period*=v->rate;
     v->damping=.53f+.02f*dsp_clamp((60.0f-v->note)/24,0,1);
     period-=(1-v->damping)/v->damping;
@@ -61,7 +61,7 @@ FM1_DSP_CODE unsigned pluck_limit(pluck_t *p,unsigned limit) {
     if(!limit||limit>PLUCK_VOICES)return 0;p->limit=(uint8_t)limit;
     unsigned retired=0;while(pluck_active(p)>limit){unsigned i=oldest(p);p->voice[i].note=255;retired++;}return retired;
 }
-FM1_DSP_CODE void pluck_note(pluck_t *p,unsigned note,unsigned velocity) {
+FM1_DSP_CODE void pluck_note(pluck_t *p,unsigned note,unsigned velocity,int cents) {
     if(note>127||velocity>127)return;
     if(!velocity){for(unsigned i=0;i<PLUCK_VOICES;i++)if(p->voice[i].note==note)p->voice[i].down=0;return;}
     unsigned slot=PLUCK_VOICES;
@@ -69,7 +69,7 @@ FM1_DSP_CODE void pluck_note(pluck_t *p,unsigned note,unsigned velocity) {
     if(slot==PLUCK_VOICES&&pluck_active(p)<p->limit)for(unsigned i=0;i<PLUCK_VOICES;i++)if(p->voice[i].note==255){slot=i;break;}
     if(slot==PLUCK_VOICES)slot=oldest(p);
     pluck_voice_t *v=p->voice+slot;memset(v,0,sizeof *v);
-    v->note=(uint8_t)note;v->down=1;v->age=++p->age;
+    v->note=(uint8_t)note;v->tune=cents*16384/25;v->down=1;v->age=++p->age;
     v->gain=.25f*velocity/127*(1+.04f*p->pot[1]/127*(1+dsp_clamp((60.0f-note)/24,0,1)));
     retune(p,v);v->position=0;v->clock=0;
     unsigned n=(unsigned)v->delay_length+2;

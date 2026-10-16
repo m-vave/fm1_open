@@ -151,7 +151,7 @@ unsigned groove_samples_size(void)
 }
 int groove_samples_begin(unsigned bytes)
 {
-    if (bytes < sizeof header || bytes > GROOVE_SAMPLE_BYTES ||
+    if (bytes < sizeof header || bytes > GROOVE_SAMPLE_LIMIT ||
         fm1_flash_size() != GROOVE_FLASH_BYTES)
         return GROOVE_PROJECT_INVALID;
     unbind();

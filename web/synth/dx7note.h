@@ -38,7 +38,7 @@ typedef struct {
     u32 input[4], attenuation[4];
 } t_dx7_mod_cache;
 
-void dx7note_init(t_dx7note *this,u8 *patch,u8 midinote,u8 velocity);
+void dx7note_init(t_dx7note *this,u8 *patch,u8 midinote,u8 velocity,int cents);
 void dx7note_compute_64(t_dx7note *this, int *buf, int *scratch, int lfo_val,
                         int lfo_delay, t_dx7ctrl *ctrl, t_dx7_mod_cache *mod);
 void dx7note_keyup(t_dx7note *this);

@@ -11,7 +11,7 @@ typedef struct psg psg_t;
 size_t psg_size(void);
 void psg_init(psg_t *p);
 FM1_DSP_CODE void psg_panic(psg_t *p);
-FM1_DSP_CODE void psg_note(psg_t *p, unsigned note, unsigned velocity);
+FM1_DSP_CODE void psg_note(psg_t *p, unsigned note, unsigned velocity, int cents);
 FM1_DSP_CODE void psg_midi(psg_t *p, const uint8_t message[3]);
 /* Process one 128-frame block; release/AY control advances every 64 samples. */
 FM1_DSP_CODE void psg_render(psg_t *p, int32_t *out, unsigned frames);

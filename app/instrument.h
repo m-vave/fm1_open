@@ -50,6 +50,28 @@ struct groove_sequence_options {
     uint8_t chord[GROOVE_CHORDS][8]; /* count, then positive offsets from root */
     struct groove_parameter_lock lock[GROOVE_LOCKS]; /* track 255: unused */
 };
+/* Per-track tuning: whole-cent offsets from 12-TET, -127..+127, indexed by
+ * absolute pitch class (MIDI note % 12, C = 0). `main` applies normally; `alt`
+ * applies to notes flagged alt: a melodic step with GROOVE_STEP_ALT (bit 13)
+ * or a live note while groove_tuning_alt_hold is on. All zero is 12-TET.
+ * Control task only (audio gate rules as for groove_source_set). The offset is
+ * read at note-on and kept by that voice: edits affect subsequent note-ons,
+ * never sounding notes. Drum sources (808, sampler) ignore it. Alt hold is
+ * live state and is not saved. set returns 0, or <0 for track >= GROOVE_TRACKS,
+ * a NULL pointer, or any value outside -127..+127 (-128 is reserved); an
+ * invalid call leaves the current tables unchanged. */
+enum { GROOVE_TUNING_KEYS = 12 };
+#define GROOVE_STEP_ALT (1U << 13)
+struct groove_tuning { int8_t main[GROOVE_TUNING_KEYS], alt[GROOVE_TUNING_KEYS]; };
+int groove_tuning_set(unsigned track, const struct groove_tuning *t); /* 0 ok, <0 invalid */
+void groove_tuning_get(unsigned track, struct groove_tuning *t);
+void groove_tuning_alt_hold(unsigned track, unsigned on);
+/* Whole-instrument snapshot for project storage (control task only). capture
+ * copies all GROOVE_TRACKS tables and returns 0. apply validates every track
+ * first; any NULL pointer or -128 entry returns <0 and changes nothing,
+ * otherwise all tables are replaced and it returns 0. Neither touches alt hold. */
+int groove_tuning_capture(struct groove_tuning t[GROOVE_TRACKS]);
+int groove_tuning_apply(const struct groove_tuning t[GROOVE_TRACKS]);
 struct groove_view {
     uint8_t type, program, volume, level, ready, playing, play_step, modified, muted, solo, audible,
         mono, clock_mode, clock_state, sequence_length, next_length;
@@ -143,6 +165,11 @@ struct groove_project {
 _Static_assert(sizeof(struct groove_project) == 4064, "project v4 layout");
 enum { GROOVE_PROJECT_SLOTS = 16, GROOVE_PROJECT_BYTES = 4064,
        GROOVE_PROJECT_LEGACY_BYTES = 4048 };
+/* Optional tuning block after an exported/imported project: magic 'FM1T'
+ * (0x54314d46, little-endian), 8 x 24 B tables, then ~CRC-32 of the first 196
+ * bytes. Exports append it when the capacity allows; imports accept either size. */
+enum { GROOVE_TUNING_BLOCK_BYTES = 200,
+       GROOVE_PROJECT_TUNED_BYTES = GROOVE_PROJECT_BYTES + GROOVE_TUNING_BLOCK_BYTES };
 void groove_project_arp_defaults(struct groove_project *p);
 enum { GROOVE_PROJECT_EMPTY = 1, GROOVE_PROJECT_INVALID = -7, GROOVE_PROJECT_MEMORY = -8 };
 /* Control only. Apply reuses matching engines and stages only missing
@@ -257,6 +284,11 @@ struct groove_project *groove_project_scratch(void); /* control-only, transient 
 /* Project sectors stay at 0..68 KiB; a single shared 456 KiB sample bank follows. */
 enum { GROOVE_SAMPLE_OFFSET = 69632, GROOVE_SAMPLE_BYTES = 466944,
        GROOVE_FLASH_BYTES = GROOVE_SAMPLE_OFFSET + GROOVE_SAMPLE_BYTES };
+/* The last Flash sector holds per-slot tuning tables (app/project.c), so the
+ * sample bank accepted for new transfers stops one sector short. A bank already
+ * stored at the old full size stays readable; it only blocks tuning saves. */
+enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
+       GROOVE_SAMPLE_LIMIT = GROOVE_SAMPLE_BYTES - 4096 };
 void groove_samples_init(void);
 void groove_samples_poll(void);
 void groove_samples_stop(void); /* gate already held */

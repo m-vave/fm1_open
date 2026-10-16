@@ -22,7 +22,7 @@ typedef struct bass_voice bass303_bank_t;
 FM1_DSP_CODE size_t bass303_bank_size(void);
 FM1_DSP_CODE void bass303_bank_init(bass303_bank_t *b);
 FM1_DSP_CODE void bass303_bank_panic(bass303_bank_t *b);
-FM1_DSP_CODE void bass303_bank_note(bass303_bank_t *b, unsigned mono, unsigned note, unsigned velocity);
+FM1_DSP_CODE void bass303_bank_note(bass303_bank_t *b, unsigned mono, unsigned note, unsigned velocity, int cents);
 FM1_DSP_CODE void bass303_bank_pedal(bass303_bank_t *b, unsigned mono, unsigned down);
 FM1_DSP_CODE void bass303_bank_bend(bass303_bank_t *b, int32_t semitones_q16);
 /* mono selects last-note-priority slide; poly uses four voices and fixed 1/8

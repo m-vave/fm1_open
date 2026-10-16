@@ -10,6 +10,10 @@ void fm1_web_midi(const uint8_t *message, size_t bytes);
 void fm1_web_pause(void);
 void fm1_web_resume(void);
 FM1_DSP_CODE void groove_note(unsigned track, unsigned note, unsigned velocity, int sequenced);
+/* groove_note with an explicit alt flag (GROOVE_STEP_ALT); selects the alt tuning table. */
+FM1_DSP_CODE void groove_note_ex(unsigned track, unsigned note, unsigned velocity, int sequenced, unsigned alt);
+FM1_DSP_CODE unsigned groove_alt_held(unsigned track);
+void groove_sequence_alt(unsigned track, unsigned step, unsigned alt);
 FM1_DSP_CODE void groove_arp_reset(unsigned clear_latch);
 FM1_DSP_CODE void groove_arp_render(unsigned tempo);
 FM1_DSP_CODE void groove_arp_clock(void);

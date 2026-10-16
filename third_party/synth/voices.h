@@ -15,6 +15,7 @@ struct bass_voice {
         uint8_t note;
     } voice[BASS303_VOICES];
     uint32_t age;
+    int8_t cents[128]; /* tuning captured at note-on, for mono re-triggers */
     uint8_t order[128], velocity[128], down[128], pedal;
     unsigned count, limit;
 };
@@ -29,7 +30,7 @@ enum { PSG_CHIPS = (PSG_VOICES + 2) / 3 };
 struct psg {
     PSG chip[PSG_CHIPS];
     struct {
-        int32_t gain;
+        int32_t gain, tune; /* tune: Q16 semitones, fixed at note-on. */
         uint32_t age;
         uint8_t note, down;
     } voice[PSG_VOICES];
@@ -45,6 +46,7 @@ typedef struct {
     float delay[PLUCK_DELAY], delay_fraction, rate, clock, filter, feedback, damping;
     float gain, release, previous, current;
     uint32_t position, age, quiet, delay_length;
+    int32_t tune; /* Q16 semitones, fixed at note-on. */
     uint8_t note, down;
 } pluck_voice_t;
 struct pluck {

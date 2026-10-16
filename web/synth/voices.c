@@ -31,7 +31,7 @@ static FM1_DSP_CODE void bass_forget(struct bass_voice *b, unsigned note)
 }
 /* Mono retains the original last-key priority and legato slide. Poly owns a
  * complete filter/envelope per voice, preferring idle or released slots. */
-static FM1_DSP_CODE void bass_poly_note(struct bass_voice *b, unsigned note, unsigned velocity)
+static FM1_DSP_CODE void bass_poly_note(struct bass_voice *b, unsigned note, unsigned velocity, int cents)
 {
     b->down[note] = velocity != 0;
     if (!velocity) {
@@ -59,7 +59,7 @@ static FM1_DSP_CODE void bass_poly_note(struct bass_voice *b, unsigned note, uns
     }
     b->voice[slot].note = (uint8_t)note;
     b->voice[slot].age = ++b->age;
-    bass303_note_on(&b->engine[slot], (int)note, velocity >= 100, 0);
+    bass303_note_on(&b->engine[slot], (int)note, velocity >= 100, 0, cents);
 }
 /* Each contribution is S32 / 8. Even eight such contributions fit S32, so
  * the fixed four-voice sum needs no saturating add. */
@@ -92,11 +92,11 @@ FM1_DSP_CODE void bass303_bank_render(struct bass_voice *b, unsigned mono_mode, 
             out[i] += temp[i] / 8;
     }
 }
-FM1_DSP_CODE void bass303_bank_note(bass303_bank_t *b, unsigned mono, unsigned note, unsigned velocity)
+FM1_DSP_CODE void bass303_bank_note(bass303_bank_t *b, unsigned mono, unsigned note, unsigned velocity, int cents)
 {
     if (note > 127 || velocity > 127) return;
     if (!mono) {
-        bass_poly_note(b, note, velocity);
+        bass_poly_note(b, note, velocity, cents);
         return;
     }
     if (velocity) {
@@ -105,7 +105,8 @@ FM1_DSP_CODE void bass303_bank_note(bass303_bank_t *b, unsigned mono, unsigned n
         b->order[b->count++] = (uint8_t)note;
         b->velocity[note] = (uint8_t)velocity;
         b->down[note] = 1;
-        bass303_note_on(&b->engine[0], (int)note, velocity >= 100, slide);
+        b->cents[note] = (int8_t)cents;
+        bass303_note_on(&b->engine[0], (int)note, velocity >= 100, slide, cents);
     } else {
         int top = b->count && b->order[b->count - 1] == note;
         b->down[note] = 0;
@@ -115,7 +116,7 @@ FM1_DSP_CODE void bass303_bank_note(bass303_bank_t *b, unsigned mono, unsigned n
             bass303_note_off(&b->engine[0]);
         else if (top && !b->pedal) {
             unsigned last = b->order[b->count - 1];
-            bass303_note_on(&b->engine[0], (int)last, b->velocity[last] >= 100, 1);
+            bass303_note_on(&b->engine[0], (int)last, b->velocity[last] >= 100, 1, b->cents[last]);
         }
     }
 }
@@ -141,7 +142,7 @@ FM1_DSP_CODE void bass303_bank_pedal(bass303_bank_t *b, unsigned mono, unsigned 
             bass303_note_off(&b->engine[0]);
         else {
             unsigned note = b->order[b->count - 1];
-            bass303_note_on(&b->engine[0], (int)note, b->velocity[note] >= 100, 1);
+            bass303_note_on(&b->engine[0], (int)note, b->velocity[note] >= 100, 1, b->cents[note]);
         }
     }
 }

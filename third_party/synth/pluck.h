@@ -11,7 +11,7 @@ typedef struct pluck pluck_t;
 size_t pluck_size(void);
 void pluck_init(pluck_t *p);
 FM1_DSP_CODE void pluck_panic(pluck_t *p);
-FM1_DSP_CODE void pluck_note(pluck_t *p, unsigned note, unsigned velocity);
+FM1_DSP_CODE void pluck_note(pluck_t *p, unsigned note, unsigned velocity, int cents);
 FM1_DSP_CODE void pluck_midi(pluck_t *p, const uint8_t message[3]);
 FM1_DSP_CODE void pluck_render(pluck_t *p, int32_t *out, unsigned frames);
 FM1_DSP_CODE void pluck_set(pluck_t *p, unsigned parameter, unsigned value);
