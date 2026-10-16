@@ -4,6 +4,9 @@
  * helpers. Exits non-zero on failure. */
 #define TUNING_NO_MAIN
 #include "tuning_test.c"
+#ifndef M_PI /* not defined by strict C11 libcs */
+#define M_PI 3.14159265358979323846
+#endif
 
 #ifndef GROOVE_STEP_ALT
 #define GROOVE_STEP_ALT (1U << 13)
