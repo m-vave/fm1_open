@@ -2,7 +2,8 @@
 /* Patch library: the device DEFAULT project, the factory voice bank, VMEM
  * packing, INIT VOICE, sample bank overlap, program addressing, and library
  * bank transfer (kind 4) with the layout query (command 22). Exits non-zero on
- * failure. Writes build/host/library_vectors.bin for library_readvoices.mjs.
+ * failure. Writes build/host/library_vectors.bin for library_readvoices.mjs
+ * and workbench_test.mjs.
  *
  * transfer.c is #included with its external symbols renamed so the test can
  * call command() directly; presets.c is #included a second time without the
@@ -83,9 +84,21 @@ static void factory(void)
     CHECK(device_factory_build(0, p) == 0 && groove_project_valid(p));
     static const uint8_t types[GROOVE_TRACKS] = {GROOVE_DX7, GROOVE_303, GROOVE_PSG, GROOVE_PLUCK,
                                                  GROOVE_SAMPLE, GROOVE_DX7, GROOVE_303, GROOVE_808};
-    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) CHECK(p->preset[t].type == types[t]);
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) CHECK(p->preset[t].type == types[t] && !p->preset[t].modified);
     CHECK(!memcmp(p->name, "DEFAULT     ", 12) && p->tempo == 120 && p->mute == 0x60);
-    CHECK(!memcmp(p->step, empty->step, sizeof p->step)); /* no steps */
+    unsigned playing = 0;
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+        for (unsigned i = 0; i < GROOVE_STEPS; ++i) playing |= p->step[t][i].velocity | p->step[t][i].drums;
+    CHECK(!playing); /* no steps */
+    /* Byte for byte what a freshly started device exports, apart from the name. */
+    fresh();
+    struct groove_project *boot = empty;
+    CHECK(groove_project_export((uint8_t *)boot, sizeof *boot) == 0);
+    memcpy(boot->name, p->name, sizeof p->name);
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+        if (memcmp(&p->preset[t], &boot->preset[t], sizeof p->preset[t]))
+            printf("DEFAULT differs from start-up on track %u\n", t + 1);
+    CHECK(!memcmp(p, boot, sizeof *p));
     free(p); free(empty);
 }
 static void factory_bank(void)
@@ -132,6 +145,10 @@ static void pack_unpack(void)
         uint8_t tail[2] = {(uint8_t)(-sum & 127U), 0xf7};
         fwrite(head, 1, 6, f); fwrite(bank, 1, sizeof bank, f); fwrite(tail, 1, 2, f);
         fwrite(patches, 1, sizeof patches, f);
+        uint8_t init[156], packed[128];          /* then INIT VOICE, packed */
+        groove_fm_program(init, GROOVE_LIBRARY_VOICES);
+        groove_library_pack(init, packed);
+        fwrite(packed, 1, sizeof packed, f);
         fclose(f);
     }
 }

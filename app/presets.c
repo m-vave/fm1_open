@@ -154,24 +154,12 @@ void groove_factory_voice(unsigned tone, uint8_t p[156])
     if (tone == WARM_PAD || tone == STRINGS || tone == REED) { p[139] = 2; p[143] = 2; }
     p[144] = 24; p[155] = 63;
 }
-#define FACTORY_VOICE(tone, data) groove_factory_voice(tone, data)
-#else
-/* Device image: the demos and DX7 recipes above are built only for the web
- * workbench, which can send them to the device. The device keeps one blank
- * project with the engine's start-up sources. */
-enum { BASS = 1, LEAD = 3 };
-struct part {
-    uint8_t source : 3, role : 3;
-    uint8_t tone, level, sends;
-};
-#define FACTORY_VOICE(tone, data) groove_fm_program(data, tone)
-#endif
 static void preset(struct groove_preset *p, const struct part *v)
 {
     p->type = v->source; p->volume = v->level; p->modified = 1;
     p->controls.envelope[2] = 100;
     if (v->source == GROOVE_DX7) {
-        FACTORY_VOICE(v->tone, p->data); p->program = v->tone; p->modified = 0;
+        groove_factory_voice(v->tone, p->data); p->program = v->tone; p->modified = 0;
     }
     else if (v->source == GROOVE_303) {
         static const uint8_t bass[4][BASS303_NPARAMS] = {
@@ -222,7 +210,6 @@ static void preset(struct groove_preset *p, const struct part *v)
     }
     p->data[209] = v->sends;
 }
-#if defined(FM1_OPEN_WEB)
 const char *groove_factory_name(unsigned index)
 {
     return index < GROOVE_FACTORY_PROJECTS ? scenes[index].name : NULL;
@@ -299,6 +286,10 @@ int groove_factory_build(unsigned index, struct groove_project *p)
     return groove_project_valid(p) ? 0 : GROOVE_PROJECT_INVALID;
 }
 #else
+/* Device image: the demos and DX7 recipes above are built only for the web
+ * workbench, which can send them to the device. The device keeps one blank
+ * project equal to the engine's start-up state: each source at its parameter
+ * defaults (PSG and pluck descriptors are not exported, so theirs are here). */
 const char *groove_factory_name(unsigned index)
 {
     return index < GROOVE_FACTORY_PROJECTS ? "DEFAULT" : NULL;
@@ -306,19 +297,50 @@ const char *groove_factory_name(unsigned index)
 int groove_factory_build(unsigned index, struct groove_project *p)
 {
     if (!p || index >= GROOVE_FACTORY_PROJECTS) return GROOVE_PROJECT_INVALID;
-    static const struct part parts[GROOVE_TRACKS] = {
-        {GROOVE_DX7,LEAD,0,100,0}, {GROOVE_303,BASS,0,100,0}, {GROOVE_PSG,LEAD,0,100,0},
-        {GROOVE_PLUCK,LEAD,0,100,0}, {GROOVE_SAMPLE,LEAD,0,100,0}, {GROOVE_DX7,LEAD,0,100,0},
-        {GROOVE_303,BASS,0,100,0}, {GROOVE_808,LEAD,0,100,0}
-    };
+    static const uint8_t types[GROOVE_TRACKS] = {GROOVE_DX7, GROOVE_303, GROOVE_PSG, GROOVE_PLUCK,
+                                                 GROOVE_SAMPLE, GROOVE_DX7, GROOVE_303, GROOVE_808};
     static const uint8_t effects[4] = {64, 64, 48, 100};
+    static const uint8_t psg[4] = {0, 16, 24, 32}, pluck[4] = {90, 100, 24, 35};
     memset(p, 0, sizeof *p);
     memset(p->name, ' ', sizeof p->name); memcpy(p->name, "DEFAULT", 7);
     p->tempo = 120; p->mute = (1U << 5) | (1U << 6);
     memcpy(p->effects, effects, sizeof effects);
     groove_sequence_defaults(&p->sequence);
     groove_project_arp_defaults(p);
-    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) preset(&p->preset[t], &parts[t]);
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) {
+        struct groove_preset *v = &p->preset[t];
+        uint8_t *d = v->data;
+        v->type = types[t]; v->volume = 100; v->controls.envelope[2] = 100;
+        if (v->type != GROOVE_808 && v->type != GROOVE_SAMPLE)
+            for (unsigned i = 0; i < GROOVE_STEPS; ++i) p->step[t][i].note = 60; /* empty steps at C4 */
+        if (v->type == GROOVE_DX7) groove_fm_program(d, 0);
+        else if (v->type == GROOVE_303) {
+            for (int i = 0; i < BASS303_NPARAMS; ++i) d[i] = (uint8_t)bass303_param(i)->def;
+            v->program = d[BASS303_WAVE];
+        } else if (v->type == GROOVE_PSG) memcpy(d, psg, 4);
+        else if (v->type == GROOVE_PLUCK) memcpy(d, pluck, 4);
+        else if (v->type == GROOVE_SAMPLE) {
+            v->sampler_pads = SAMPLE_DRUM_PADS;
+            for (unsigned i = 0; i < SAMPLE_DRUM_PADS * SAMPLE_DRUM_PARAMS; ++i)
+                d[i] = (uint8_t)sampledrum_param(i % SAMPLE_DRUM_PARAMS)->def;
+            d[6 * SAMPLE_DRUM_PARAMS + SAMPLE_DRUM_CHOKE] = d[7 * SAMPLE_DRUM_PARAMS + SAMPLE_DRUM_CHOKE] = 1;
+        } else {
+            /* D8_PRESET_BYTES: sound selectors, then a parameter set per sound.
+             * Congas, claves and maracas (the second sounds of LT..CP) start
+             * with their own decays. */
+            static const uint8_t second_decay[5] = {58, 36, 34, 64, 51};
+            unsigned at = D8_NUM;
+            for (unsigned sound = 0; sound < 2; ++sound)
+                for (unsigned part = 0; part <= D8_NUM; ++part)
+                    for (int i = 0; i < drum808_nparams((int)part); ++i) {
+                        const fm1_param_t *k = drum808_param((int)part, i);
+                        unsigned value = strcmp(k->name, "Sound") ? k->def : sound;
+                        if (sound && part >= D8_LT && part <= D8_CP && !strcmp(k->name, "Decay"))
+                            value = second_decay[part - D8_LT];
+                        d[at++] = (uint8_t)value;
+                    }
+        }
+    }
     return groove_project_valid(p) ? 0 : GROOVE_PROJECT_INVALID;
 }
 #endif

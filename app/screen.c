@@ -541,7 +541,9 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
                         ((uint32_t)v[t].modified << 12) | ((uint32_t)v[t].muted << 13) |
                         ((uint32_t)v[t].solo << 14) | ((uint32_t)v[t].ready << 15) |
                         ((uint32_t)v[t].type << 16) | ((uint32_t)midi_active[t] << 19) |
-                        ((uint32_t)v[t].program << 20);
+                        ((uint32_t)v[t].program << 20) |
+                        /* A DX7 name comes from its patch, which any edit may replace. */
+                        (v[t].type == GROOVE_DX7 ? (groove_edit_revision() & 31U) << 27 : 0U);
         if (meta != cache->row_cache[t]) {
             cache->row_cache[t] = meta;
             paint_fill(5, y, 71, 16, BACK);

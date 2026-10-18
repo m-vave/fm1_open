@@ -50,7 +50,13 @@ try {
     await library.upload(4, 2, body);
     check(equal(await library.download(4, 2), body), 'bank write and read back');
     check(equal(globalThis.FM1Web.bankFile(body), vectors.subarray(0, 4104)), 'bank file matches the .syx');
-    check((await library.download(4, 0)).every(b => b === 255), 'other banks stay empty');
+    const empty = await library.download(4, 0);
+    check(empty.every(b => b === 255), 'other banks stay empty');
+    // Exported empty slots are INIT VOICE, exactly as the device packs it.
+    const init = vectors.subarray(4104 + 32 * 156, 4104 + 32 * 156 + 128);
+    const exported = globalThis.FM1Web.bankFile(empty);
+    check(globalThis.FM1Web.readVoices(exported).length === 32, 'exported empty bank is a valid .syx');
+    for (let v = 0; v < 32; v++) check(equal(exported.subarray(6 + v * 128, 6 + v * 128 + 128), init), `empty slot ${v} exports as INIT VOICE`);
     check(equal(await library.download(0), project), 'project untouched by a bank write');
     const bad = body.slice(); bad[5] = 0x90;
     await rejects(library.upload(4, 1, bad), 'invalid bank refused');
