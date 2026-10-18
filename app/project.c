@@ -263,7 +263,7 @@ static int tuning_blocked(void)
     int r = fm1_flash_read(GROOVE_SAMPLE_OFFSET, bank, sizeof bank);
     if (r)
         return r;
-    return bank[0] == SAMPLE_BANK_MAGIC && bank[2] > GROOVE_SAMPLE_LIMIT;
+    return bank[0] == SAMPLE_BANK_MAGIC && bank[2] > GROOVE_TUNING_OFFSET - GROOVE_SAMPLE_OFFSET;
 }
 static int tuning_has_values(const struct groove_tuning tables[GROOVE_TRACKS])
 {

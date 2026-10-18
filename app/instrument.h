@@ -173,7 +173,8 @@ enum { GROOVE_TUNING_BLOCK_BYTES = 200,
        GROOVE_PROJECT_TUNED_BYTES = GROOVE_PROJECT_BYTES + GROOVE_TUNING_BLOCK_BYTES };
 void groove_project_arp_defaults(struct groove_project *p);
 enum { GROOVE_PROJECT_EMPTY = 1, GROOVE_PROJECT_INVALID = -7,
-       GROOVE_PROJECT_MEMORY = -8, GROOVE_PROJECT_TUNING_SPACE = -9 };
+       GROOVE_PROJECT_MEMORY = -8, GROOVE_PROJECT_TUNING_SPACE = -9,
+       GROOVE_PROJECT_LIBRARY_SPACE = -10 };
 /* Control only. Apply reuses matching engines and stages only missing
  * instances. A validation/allocation failure leaves the current project
  * untouched. */
@@ -202,8 +203,14 @@ void groove_project_metadata(const struct groove_project *p); /* audio gate held
 int groove_project_import(const uint8_t *bytes, unsigned length);
 int groove_project_export(uint8_t *bytes, unsigned capacity);
 /* Read-only factory projects. Building only writes the caller's
- * snapshot; loading changes RAM and supports undo, never writes user slots. */
+ * snapshot; loading changes RAM and supports undo, never writes user slots.
+ * The demo projects are built only for the web workbench; the device image
+ * keeps one blank DEFAULT project. */
+#if defined(FM1_OPEN_WEB)
 enum { GROOVE_FACTORY_PROJECTS = 16 };
+#else
+enum { GROOVE_FACTORY_PROJECTS = 1 };
+#endif
 const char *groove_factory_name(unsigned index);
 int groove_factory_build(unsigned index, struct groove_project *project);
 int groove_factory_load(unsigned index);
@@ -289,11 +296,26 @@ struct groove_project *groove_project_scratch(void); /* control-only, transient 
 /* Project sectors stay at 0..68 KiB; a single shared 456 KiB sample bank follows. */
 enum { GROOVE_SAMPLE_OFFSET = 69632, GROOVE_SAMPLE_BYTES = 466944,
        GROOVE_FLASH_BYTES = GROOVE_SAMPLE_OFFSET + GROOVE_SAMPLE_BYTES };
-/* The last Flash sector holds per-slot tuning tables (app/project.c), so the
- * sample bank accepted for new transfers stops one sector short. A bank already
- * stored at the old full size stays readable; it only blocks tuning saves. */
+/* The last Flash sector holds per-slot tuning tables (app/project.c). The
+ * patch library (app/library.c) takes the sectors below it: bank b at
+ * GROOVE_TUNING_OFFSET - 4096 * (b + 1), so a large sample bank reaches the
+ * highest banks first. New sample transfers stop below the library. A bank
+ * already stored at an older, larger size stays readable; it only blocks the
+ * tuning saves and library banks it overlaps. */
 enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
-       GROOVE_SAMPLE_LIMIT = GROOVE_SAMPLE_BYTES - 4096 };
+       GROOVE_LIBRARY_BANKS = 4, GROOVE_LIBRARY_BANK_BYTES = 4096,
+       GROOVE_LIBRARY_VOICES = 32 * GROOVE_LIBRARY_BANKS,
+       GROOVE_LIBRARY_OFFSET = GROOVE_TUNING_OFFSET - GROOVE_LIBRARY_BANK_BYTES * GROOVE_LIBRARY_BANKS,
+       GROOVE_SAMPLE_LIMIT = GROOVE_LIBRARY_OFFSET - GROOVE_SAMPLE_OFFSET };
+/* Patch library: 32-voice DX7 banks in VMEM (packed) format, one Flash sector
+ * each. A 128-byte voice with any byte above 0x7f (e.g. erased) is empty.
+ * Control task only, except groove_fm_program (fm_patch.h). */
+int groove_library_available(unsigned bank); /* 1 usable, 0 overlapped by samples */
+int groove_library_read(unsigned bank, uint8_t data[GROOVE_LIBRARY_BANK_BYTES]);
+int groove_library_write(unsigned bank, const uint8_t data[GROOVE_LIBRARY_BANK_BYTES]);
+void groove_library_refresh(void); /* after the sample bank or Flash mapping changes */
+void groove_library_unpack(const uint8_t voice[128], uint8_t patch[156]);
+void groove_library_pack(const uint8_t patch[156], uint8_t voice[128]);
 void groove_samples_init(void);
 void groove_samples_poll(void);
 void groove_samples_stop(void); /* gate already held */

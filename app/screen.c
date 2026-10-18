@@ -239,6 +239,7 @@ static void project_refresh(void)
     } else project_stored_result = groove_project_info(project_slot, project_stored);
     project_drawn_revision = groove_project_revision();
 }
+static unsigned preset_slots(unsigned bank) { return bank ? GROOVE_FACTORY_PROJECTS : GROOVE_PROJECT_SLOTS; }
 static void preset_refresh(void)
 {
     project_slot = preset_slot;
@@ -536,10 +537,11 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
     for (unsigned t = 0; t < 8; ++t) {
         unsigned y = 48 + 18 * t;
         if (paint_rendering && (y >= paint_top + PAINT_ROWS || y + 16 <= paint_top)) continue;
-        uint32_t meta = v[t].program | ((uint32_t)v[t].volume << 4) | ((t == track) << 11) |
+        uint32_t meta = ((uint32_t)v[t].volume << 4) | ((t == track) << 11) |
                         ((uint32_t)v[t].modified << 12) | ((uint32_t)v[t].muted << 13) |
                         ((uint32_t)v[t].solo << 14) | ((uint32_t)v[t].ready << 15) |
-                        ((uint32_t)v[t].type << 16) | ((uint32_t)midi_active[t] << 19);
+                        ((uint32_t)v[t].type << 16) | ((uint32_t)midi_active[t] << 19) |
+                        ((uint32_t)v[t].program << 20);
         if (meta != cache->row_cache[t]) {
             cache->row_cache[t] = meta;
             paint_fill(5, y, 71, 16, BACK);
@@ -547,8 +549,12 @@ static __attribute__((noinline)) void overview(const struct groove_view v[8])
             paint_fill(6, y, 18, 16, bg);
             number(12, y + 5, t + 1, 1, 1, t == track ? BACK : colors[t], bg);
             paint_fill(7, y + 12, 3, 3, midi_active[t] ? GREEN : bg);
-            char fm_name[8];
-            memcpy(fm_name, groove_fm_program_name(v[t].program), 7); fm_name[7] = 0;
+            /* The track's own patch names it, whatever the library holds now. */
+            char fm_name[8] = "DX7";
+            uint8_t patch[156];
+            if (v[t].type == GROOVE_DX7 && !groove_fm_copy(t, patch, NULL)) {
+                memcpy(fm_name, patch + 145, 7); fm_name[7] = 0;
+            }
             text(29, y + 1,
                  !v[t].ready                  ? "ERROR"
                  : v[t].type == GROOVE_DX7    ? fm_name
@@ -1116,7 +1122,8 @@ static __attribute__((noinline)) void preset_draw(void)
     paint_fill(0, 30, 240, 210, BACK);
     text(8, 42, preset_bank ? "FACTORY PRESETS" : "USER PROJECTS", 1, DIM, BACK);
     number(8, 65, preset_slot + 1, 2, 2, ACCENT, BACK);
-    text(38, 65, "/16", 2, DIM, BACK);
+    text(38, 65, "/", 2, DIM, BACK);
+    number(50, 65, preset_slots(preset_bank), 2, 2, DIM, BACK);
     text(8, 97, project_stored_result < 0 ? "READ ERROR" : project_stored, 2, TEXT, BACK);
     text(8, 127, "SELECT / PRESETS LOAD", 1, TEXT, BACK);
     text(8, 148, "PLAY LOAD + RUN   SAVE PROJECT", 1, TEXT, BACK);
@@ -1326,9 +1333,10 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
     } else {
         text(8, 40, "DX7 QUICK EDIT", 2, ACCENT, BACK);
         char name[11]; memcpy(name, frame_patch + 145, 10); name[10] = 0;
-        number(8, 76, frame_views[track].program + 1, 2, 1, ACCENT, BACK);
-        text(20, 76, "/16", 1, DIM, BACK);
-        text(42, 76, frame_views[track].modified ? "*" : " ", 1, AMBER, BACK);
+        number(8, 76, frame_views[track].program + 1, 3, 1, ACCENT, BACK);
+        text(26, 76, "/", 1, DIM, BACK);
+        number(32, 76, (int)GROOVE_ENGINE_PROGRAMS, 3, 1, DIM, BACK);
+        text(50, 76, frame_views[track].modified ? "*" : " ", 1, AMBER, BACK);
         text(56, 72, name, 2, TEXT, BACK);
         text(8, 102, "PRESETS SELECT VOICE", 1, TEXT, BACK);
         text(8, 126, "HOLD EDIT OPERATOR PARAMETERS", 1, DIM, BACK);
@@ -2006,9 +2014,9 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         goto controls_done;
     }
     if (page == OVERVIEW && !glo_down && controls->encoders[6]) {
-        int current = preset_loaded ? (int)preset_current_slot : controls->encoders[6] > 0 ? -1 : GROOVE_PROJECT_SLOTS;
-        unsigned slot = (unsigned)clamp(current + controls->encoders[6],
-                                        0, GROOVE_PROJECT_SLOTS - 1);
+        unsigned slots = preset_slots(preset_current_bank);
+        int current = preset_loaded ? (int)preset_current_slot : controls->encoders[6] > 0 ? -1 : (int)slots;
+        unsigned slot = (unsigned)clamp(current + controls->encoders[6], 0, (int)slots - 1);
         if (!preset_loaded || slot != preset_current_slot) {
             struct groove_view view = {0}; groove_get_view(track, cursor, &view);
             preset_slot = slot; preset_bank = preset_current_bank; preset_refresh();
@@ -2020,9 +2028,9 @@ static int apply_controls(const struct fm1_controls *controls, uint32_t now,
         play_handled = 1;
         int delta = controls->encoders[0] + controls->encoders[6];
         unsigned bank = (unsigned)clamp((int)preset_bank + controls->encoders[2], 0, 1);
-        unsigned slot = (unsigned)clamp((int)preset_slot + delta, 0, GROOVE_PROJECT_SLOTS - 1);
+        unsigned slot = (unsigned)clamp((int)preset_slot + delta, 0, (int)preset_slots(bank) - 1);
         unsigned load = 0, start = 0;
-        for (unsigned i = 0; i < 16; ++i)
+        for (unsigned i = 0; i < preset_slots(bank); ++i)
             if ((key_down & ~blocked_keys) & (1U << white_keys[i])) {
                 struct groove_view view = {0}; groove_get_view(track, cursor, &view);
                 slot = i; load = 1; start = view.playing;

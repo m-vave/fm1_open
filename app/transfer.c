@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
 #include "tuning_hook.h"
+#include "fm_patch.h"
 #include "fm1_engine_control.h"
 #include <stdlib.h>
 #include <string.h>
@@ -57,7 +58,8 @@ void groove_transfer_init(void)
 }
 static int transfer_begin(unsigned kind, unsigned target, unsigned size, unsigned writing)
 {
-    if (kind > 3 || (kind == 1 && (target >= GROOVE_TRACKS || size != 156)) ||
+    if (kind > 4 || (kind == 1 && (target >= GROOVE_TRACKS || size != 156)) ||
+        (kind == 4 && (target >= GROOVE_LIBRARY_BANKS || size != GROOVE_LIBRARY_BANK_BYTES)) ||
         (kind == 2 && (target >= GROOVE_TRACKS || size != sizeof(struct groove_preset))) ||
         (!kind && (target || (size != GROOVE_PROJECT_BYTES && size != GROOVE_PROJECT_LEGACY_BYTES &&
                               (!writing || size != GROOVE_PROJECT_TUNED_BYTES)))) ||
@@ -89,11 +91,22 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
 {
     int r = GROOVE_PROJECT_INVALID;
     *count = 0;
+    if (cmd == 22 && !n) {
+        /* Layout: sample upload limit, library banks, bank bytes, DX7 programs. */
+        put32(out, GROOVE_SAMPLE_LIMIT);
+        out[4] = GROOVE_LIBRARY_BANKS;
+        out[5] = GROOVE_LIBRARY_BANK_BYTES & 255;
+        out[6] = GROOVE_LIBRARY_BANK_BYTES >> 8;
+        out[7] = (uint8_t)GROOVE_ENGINE_PROGRAMS;
+        *count = 8; return 0;
+    }
     if (cmd == 21 && !n) {
         out[0] = groove_tuning_capture && groove_tuning_apply ? 1 : 0;
         out[1] = GROOVE_PROJECT_TUNED_BYTES & 255;
         out[2] = GROOVE_PROJECT_TUNED_BYTES >> 8;
-        put32(out + 3, GROOVE_SAMPLE_LIMIT);
+        /* Unchanged for existing clients, which require this exact value; command
+         * 22 reports the real limit below the patch library. */
+        put32(out + 3, GROOVE_TUNING_OFFSET - GROOVE_SAMPLE_OFFSET);
         *count = 7; return 0;
     }
     if (cmd == 20 && !n) {
@@ -153,11 +166,13 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
         return 0;
     }
     if (cmd == 1 && n == 2) {
-        unsigned size = data[0] == 2 ? sizeof(struct groove_preset) : data[0] == 1 ? 156
+        unsigned size = data[0] == 4 ? GROOVE_LIBRARY_BANK_BYTES
+                        : data[0] == 2 ? sizeof(struct groove_preset) : data[0] == 1 ? 156
                         : data[0] == 3 ? GROOVE_PROJECT_TUNED_BYTES : GROOVE_PROJECT_BYTES;
         r = transfer_begin(data[0], data[1], size, 0);
         if (!r) {
-            r = data[0] == 2 ? groove_timbre_export(data[1], transfer, size)
+            r = data[0] == 4 ? groove_library_read(data[1], transfer)
+                : data[0] == 2 ? groove_timbre_export(data[1], transfer, size)
                 : data[0] == 1 ? groove_fm_copy(data[1], transfer, NULL)
                         : groove_project_export(transfer, size);
             if (r)
@@ -186,7 +201,8 @@ static int command(unsigned cmd, const uint8_t *data, unsigned n, uint8_t *out, 
         }
     } else if (cmd == 5 && n == 4 && transfer && transfer_writing && transferred == transfer_size) {
         if (get32(data) == ~groove_crc32(~0U, transfer, transfer_size)) {
-            r = transfer_kind == 2 ? groove_timbre_import(transfer_target, transfer, transfer_size)
+            r = transfer_kind == 4 ? groove_library_write(transfer_target, transfer)
+                : transfer_kind == 2 ? groove_timbre_import(transfer_target, transfer, transfer_size)
                 : transfer_kind == 1 ? groove_fm_import(transfer_target, transfer)
                               : groove_project_import(transfer, transfer_size);
             if (!r)

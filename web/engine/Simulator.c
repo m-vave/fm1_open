@@ -2,6 +2,7 @@
 /* Browser platform adapter: in-memory display, storage and MIDI input. */
 #include "internal.h"
 #include "sampledrum.h"
+#include "fm_patch.h"
 #include "fm1_sea.h"
 #include "fm1_engine_control.h"
 #include "audio_output.h"
@@ -370,6 +371,7 @@ EXPORT("sim_sample_bank") int sim_sample_bank(unsigned bytes)
 }
 EXPORT("sim_export") int sim_export(void) { return groove_project_export(file_buffer, sizeof file_buffer); }
 EXPORT("sim_import") int sim_import(unsigned bytes) { return groove_project_import(file_buffer, bytes); }
+EXPORT("sim_sample_limit") unsigned sim_sample_limit(void) { return GROOVE_SAMPLE_LIMIT; }
 EXPORT("sim_factory_name") const char *sim_factory_name(unsigned index) { return groove_factory_name(index); }
 EXPORT("sim_factory_project") int sim_factory_project(unsigned index)
 {
@@ -384,6 +386,18 @@ EXPORT("sim_factory_project") int sim_factory_project(unsigned index)
         memcpy(tail + GROOVE_TUNING_BLOCK_BYTES - 4, &crc, sizeof crc);
     }
     return r;
+}
+/* The former built-in DX7 programs as a 4096-byte library bank: factory voices
+ * first, INIT VOICE after (no library slot reaches past GROOVE_LIBRARY_VOICES). */
+EXPORT("sim_factory_bank") int sim_factory_bank(void)
+{
+    uint8_t patch[156];
+    for (unsigned v = 0; v < 32; ++v) {
+        if (v < GROOVE_FACTORY_VOICES) groove_factory_voice(v, patch);
+        else groove_fm_program(patch, GROOVE_LIBRARY_VOICES);
+        groove_library_pack(patch, file_buffer + 128U * v);
+    }
+    return 0;
 }
 EXPORT("sim_patch_export") int sim_patch_export(void)
 { uint8_t v[8]; groove_screen_snapshot(v); return groove_fm_copy(v[0], file_buffer, NULL); }

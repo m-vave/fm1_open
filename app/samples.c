@@ -118,6 +118,7 @@ void groove_samples_poll(void)
             state = 4;
             return;
         }
+        groove_library_refresh(); /* the bank header decides which library banks are free */
         if (!valid()) {
             state = 0;
             return;
@@ -224,6 +225,7 @@ int groove_samples_finish(void)
         r = bind();
     if (r)
         state = 4;
+    groove_library_refresh();
     return r;
 }
 void groove_samples_cancel(void)

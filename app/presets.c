@@ -5,6 +5,7 @@
 #include "sampledrum.h"
 #include <string.h>
 
+#if defined(FM1_OPEN_WEB)
 /* FM1 arrangements. Small musical recipes expand into the normal
  * editable project format, avoiding sixteen 4 KiB images in program Flash.
  * No random generation, engine allocation or live-state changes happen here.
@@ -87,15 +88,11 @@ static unsigned bar_minor(const struct scene *s, unsigned bar)
     static const uint8_t quality[4][4] = {{0,0,1,0},{1,0,0,0},{0,1,1,0},{1,1,0,0}};
     return quality[s->minor + 2*(s->motif & 1U)][bar];
 }
-static FM1_DSP_DATA const char fm_names[FM1_FM_PROGRAMS][11] = {
+static const char fm_names[GROOVE_FACTORY_VOICES][11] = {
     "NEON KEYS ","ORBIT BELL","SOFT ORGAN","ROUND BASS","WARM AIR  ","WOOD REED ",
     "SOFT EP   ","DRY CLAV  ","FM GUITAR ","MARIMBA   ","VIBES     ","SOFT BRASS",
     "FM STRINGS","SUB BASS  ","METAL HIT ","SOFT LEAD "
 };
-const char *groove_fm_program_name(unsigned program)
-{
-    return program < FM1_FM_PROGRAMS ? fm_names[program] : "UNKNOWN   ";
-}
 /* Three independently voiced operator pairs: body, colour and transient.
  * Unequal carrier levels avoid three identical full-level voices stacking. */
 /* Pack recipe fields without changing the serialized patch layout. */
@@ -105,7 +102,7 @@ struct fm_voice {
     uint8_t attack, decay, settle, release, body, sustain, mod_attack, mod_release, feedback;
     struct fm_pair pair[3];
 };
-static FM1_DSP_DATA const struct fm_voice voices[FM1_FM_PROGRAMS] = {
+static const struct fm_voice voices[GROOVE_FACTORY_VOICES] = {
     {96,52,30,62,84,0,99,66,0, {{98,1,7,54,1,0,65,38},{91,1,8,60,1,0,57,58},{79,1,6,48,7,0,80,0}}},
     {99,50,28,53,70,0,99,62,0, {{96,1,7,58,3,50,59,0},{82,2,7,48,7,0,68,0},{69,3,7,35,11,0,80,0}}},
     {95,65,45,78,99,99,95,78,0, {{90,1,7,0,1,0,65,0},{87,2,7,0,1,0,65,0},{74,3,7,0,1,0,65,0}}},
@@ -123,9 +120,9 @@ static FM1_DSP_DATA const struct fm_voice voices[FM1_FM_PROGRAMS] = {
     {99,65,40,72,48,0,99,76,0, {{89,1,7,65,7,31,67,0},{70,2,7,58,11,47,73,0},{56,3,7,48,13,79,78,0}}},
     {88,60,40,71,96,90,82,75,1, {{96,1,7,45,1,0,65,83},{80,1,8,31,2,0,70,72},{71,2,6,24,1,0,74,66}}}
 };
-FM1_DSP_CODE void groove_fm_program(uint8_t p[156], unsigned tone)
+void groove_factory_voice(unsigned tone, uint8_t p[156])
 {
-    tone %= FM1_FM_PROGRAMS;
+    tone %= GROOVE_FACTORY_VOICES;
     const struct fm_voice *sound = &voices[tone];
     memset(p, 0, 156);
     memcpy(p + 145, fm_names[tone], 10);
@@ -144,8 +141,8 @@ FM1_DSP_CODE void groove_fm_program(uint8_t p[156], unsigned tone)
         v[18] = carrier ? pair->coarse : pair->ratio;
         v[19] = carrier ? 0 : pair->fine; v[20] = pair->detune;
         if (tone == ORGAN) {
-            static FM1_DSP_DATA const uint8_t levels[6] = {89,77,84,68,59,52};
-            static FM1_DSP_DATA const uint8_t ratios[6] = {1,2,3,4,6,8};
+            static const uint8_t levels[6] = {89,77,84,68,59,52};
+            static const uint8_t ratios[6] = {1,2,3,4,6,8};
             v[16] = levels[op]; v[18] = ratios[op]; v[19] = 0;
             v[5] = v[6] = 99; v[15] = 1; v[20] = 7;
         }
@@ -157,12 +154,24 @@ FM1_DSP_CODE void groove_fm_program(uint8_t p[156], unsigned tone)
     if (tone == WARM_PAD || tone == STRINGS || tone == REED) { p[139] = 2; p[143] = 2; }
     p[144] = 24; p[155] = 63;
 }
+#define FACTORY_VOICE(tone, data) groove_factory_voice(tone, data)
+#else
+/* Device image: the demos and DX7 recipes above are built only for the web
+ * workbench, which can send them to the device. The device keeps one blank
+ * project with the engine's start-up sources. */
+enum { BASS = 1, LEAD = 3 };
+struct part {
+    uint8_t source : 3, role : 3;
+    uint8_t tone, level, sends;
+};
+#define FACTORY_VOICE(tone, data) groove_fm_program(data, tone)
+#endif
 static void preset(struct groove_preset *p, const struct part *v)
 {
     p->type = v->source; p->volume = v->level; p->modified = 1;
     p->controls.envelope[2] = 100;
     if (v->source == GROOVE_DX7) {
-        groove_fm_program(p->data, v->tone); p->program = v->tone; p->modified = 0;
+        FACTORY_VOICE(v->tone, p->data); p->program = v->tone; p->modified = 0;
     }
     else if (v->source == GROOVE_303) {
         static const uint8_t bass[4][BASS303_NPARAMS] = {
@@ -213,6 +222,7 @@ static void preset(struct groove_preset *p, const struct part *v)
     }
     p->data[209] = v->sends;
 }
+#if defined(FM1_OPEN_WEB)
 const char *groove_factory_name(unsigned index)
 {
     return index < GROOVE_FACTORY_PROJECTS ? scenes[index].name : NULL;
@@ -288,3 +298,27 @@ int groove_factory_build(unsigned index, struct groove_project *p)
     }
     return groove_project_valid(p) ? 0 : GROOVE_PROJECT_INVALID;
 }
+#else
+const char *groove_factory_name(unsigned index)
+{
+    return index < GROOVE_FACTORY_PROJECTS ? "DEFAULT" : NULL;
+}
+int groove_factory_build(unsigned index, struct groove_project *p)
+{
+    if (!p || index >= GROOVE_FACTORY_PROJECTS) return GROOVE_PROJECT_INVALID;
+    static const struct part parts[GROOVE_TRACKS] = {
+        {GROOVE_DX7,LEAD,0,100,0}, {GROOVE_303,BASS,0,100,0}, {GROOVE_PSG,LEAD,0,100,0},
+        {GROOVE_PLUCK,LEAD,0,100,0}, {GROOVE_SAMPLE,LEAD,0,100,0}, {GROOVE_DX7,LEAD,0,100,0},
+        {GROOVE_303,BASS,0,100,0}, {GROOVE_808,LEAD,0,100,0}
+    };
+    static const uint8_t effects[4] = {64, 64, 48, 100};
+    memset(p, 0, sizeof *p);
+    memset(p->name, ' ', sizeof p->name); memcpy(p->name, "DEFAULT", 7);
+    p->tempo = 120; p->mute = (1U << 5) | (1U << 6);
+    memcpy(p->effects, effects, sizeof effects);
+    groove_sequence_defaults(&p->sequence);
+    groove_project_arp_defaults(p);
+    for (unsigned t = 0; t < GROOVE_TRACKS; ++t) preset(&p->preset[t], &parts[t]);
+    return groove_project_valid(p) ? 0 : GROOVE_PROJECT_INVALID;
+}
+#endif

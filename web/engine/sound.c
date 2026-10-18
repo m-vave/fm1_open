@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-_Static_assert(FM1_SYNTH_API == 4, "FM1 synthesis API mismatch");
+_Static_assert(FM1_SYNTH_API == 5, "FM1 synthesis API mismatch");
 
 /* Each track owns one opaque engine; no DSP layout is part of the app. */
 static struct source {
@@ -250,13 +250,22 @@ void groove_audio_stats(struct fm1_render_stats *out)
     out->deadline_ticks = 24000000U * FM1_BLOCK_FRAMES / FM1_SAMPLE_RATE;
 }
 
+/* DX7 programs: the app's patch library size (1..128). Without one (0, the
+ * default), 16 programs and Program Change wraps modulo 16 as before. */
+__attribute__((weak)) FM1_DSP_CODE unsigned groove_fm_program_count(void) { return 0; }
+static FM1_DSP_CODE unsigned program_count(void)
+{
+    unsigned n = groove_fm_program_count();
+    return !n ? FM1_FM_PROGRAMS : n > 128 ? 128 : n;
+}
 static FM1_DSP_CODE void publish(unsigned track, unsigned level)
 {
     unsigned ready = sources[track].ptr != NULL;
-    status[track].word = tracks[track].program | ((unsigned)tracks[track].volume << 4) |
+    status[track].word = (tracks[track].program & 15U) | ((unsigned)tracks[track].volume << 4) |
                          ((level > 127 ? 127 : level) << 11) | (ready ? 262144U : 0U) |
                          ((unsigned)tracks[track].modified << 19) |
-                         ((unsigned)tracks[track].type << 20);
+                         ((unsigned)tracks[track].type << 20) |
+                         ((unsigned)(tracks[track].program >> 4) << 23);
 }
 static FM1_DSP_CODE inline unsigned meter_level(uint32_t peak)
 {
@@ -626,11 +635,14 @@ static FM1_DSP_CODE unsigned message(unsigned track, const uint8_t *m, size_t n)
         tracks[track].expression = 127;
         tracks[track].pan = 64;
     }
+    if (type == 0xc0 && groove_source_type(track) == GROOVE_DX7 && groove_fm_program_count() &&
+        m[1] >= program_count())
+        return 0; /* beyond the app's program count: ignored, not wrapped */
     if (type == 0xc0) {
         groove_lock_restore(track);
         if (groove_source_type(track) == GROOVE_DX7) {
             panic(track);
-            tracks[track].program = m[1] % FM1_FM_PROGRAMS;
+            tracks[track].program = (uint8_t)(m[1] % program_count());
             tracks[track].modified = 0;
             groove_fm_program(sources[track].patch, tracks[track].program);
             memset(&tracks[track].controls, 0, sizeof tracks[track].controls);
@@ -1116,7 +1128,7 @@ __attribute__((cold, minsize)) void groove_control_edit(unsigned track, int prog
     if (track >= GROOVE_TRACKS)
         return;
     unsigned type = groove_source_type(track);
-    int count = type == GROOVE_DX7 ? FM1_FM_PROGRAMS : type == GROOVE_PSG ? 4 : type == GROOVE_303 ? 2 : 1;
+    int count = type == GROOVE_DX7 ? (int)program_count() : type == GROOVE_PSG ? 4 : type == GROOVE_303 ? 2 : 1;
     program_steps %= count;
     if (!program_steps && !volume_steps && (!cutoff_steps || type != GROOVE_303))
         return;
@@ -1156,7 +1168,7 @@ void groove_get_view(unsigned track, unsigned step, struct groove_view *view)
     if (!view || track >= 8 || step >= 64)
         return;
     uint32_t s = status[track].word;
-    view->program = s & 15U;
+    view->program = (uint8_t)((s & 15U) | ((s >> 23) & 7U) << 4);
     view->volume = (s >> 4) & 127U;
     view->level = (s >> 11) & 127U;
     view->ready = (s >> 18) & 1U;
@@ -1679,7 +1691,7 @@ __attribute__((cold, minsize)) int groove_project_valid(const struct groove_proj
             v->sequence_pages > 3 ||
             v->sampler_pads != (type == GROOVE_SAMPLE ? SAMPLE_DRUM_PADS : 0) ||
             c->operators > 63 || c->mono > 1 ||
-            v->program >= (type == GROOVE_DX7   ? FM1_FM_PROGRAMS
+            v->program >= (type == GROOVE_DX7   ? program_count()
                            : type == GROOVE_303 ? 2
                            : type == GROOVE_PSG ? 4
                                                 : 1))
