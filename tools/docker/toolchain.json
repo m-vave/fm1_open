@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "release": "jieli-linux-toolchains-20260730.1",
+  "download": "https://pkgman.jieliapp.com/s/linux-toolchain",
+  "archive": "https://jl-update.oss-cn-shenzhen.aliyuncs.com/jieli-linux-toolchains-20260730.1.tar.xz",
+  "archive_bytes": 26027508,
+  "archive_sha256": "a1545cddbc451a06bac43eb5cd96d831470c42a97c5c0b1f98879a20fc7647bd",
+  "note": "sdk/manifest.json pins Windows 2.5.3 .exe/.dll files, which do not exist on Linux. The 16 compiler headers are verified against the manifest after LF->CRLF; the Linux programs are pinned here by the hashes measured on the extracted release. Whether this toolchain generates the same code as Windows 2.5.3 is not implied by this file: it is checked per source tree by building both ways and comparing with tools/portable/elf-compare.mjs (docs/BUILDING.md).",
+  "programs": {
+    "clang": "common/bin/clang",
+    "gold": "common/bin/LLVMgold.so",
+    "objcopy": "common/bin/objcopy",
+    "ld": "pi32v2/bin/ld",
+    "nm": "pi32v2/bin/nm"
+  },
+  "windows_equivalents": {
+    "bin/clang.exe": "common/bin/clang",
+    "bin/LLVMgold.dll": "common/bin/LLVMgold.so",
+    "bin/llvm-objcopy.exe": "common/bin/objcopy",
+    "bin/pi32v2-ld.exe": "pi32v2/bin/ld",
+    "bin/llvm-nm.exe": "pi32v2/bin/nm",
+    "bin/llvm-ar.exe": "pi32v2/bin/ar"
+  },
+  "files": {
+    "common/bin/clang": "c45189ee624de0430deb0db02e6dce171fb5538e7fe323e3964dc8ac6236240f",
+    "common/bin/LLVMgold.so": "2ca8dafde18070d6a42fc47fc2ec4723946cf3d2404ca25981de5070beb1aa12",
+    "common/bin/objcopy": "295151226e28891115c97262e6460a06fe67fc0753858e0df3234eb000ea6e66",
+    "pi32v2/bin/ld": "fd61aff15616bb6f6b58fd2e9ede7af741c7bf05facb3e0cb3d3c9817c268fd9",
+    "pi32v2/bin/nm": "32bee027a324bd4d561079c943d94c53fece2bfb7f1e12b5d7ce7cc7737c6ce4",
+    "pi32v2/bin/ar": "cad18239d47ee1439dbe1d2c2892d4c4bdb868bef68f08242766df7ae333a84c"
+  }
+}
