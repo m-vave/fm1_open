@@ -37,27 +37,59 @@ V13 可以升级到 V14。工作台支持刷回原厂 V15，也支持从兼容�
 
 ## 编译
 
-需要 Windows x64、PowerShell、`curl.exe` 和 `tar.exe`。编译固件须使用 **杰理 Windows 工具链 2.5.3**，内含 PI32v2 clang 4.0.1。[从杰理下载 2.5.3 安装包](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe)，按[安装说明](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html)安装。将 `FM1_PI32_TOOLCHAIN` 指向含 `bin/clang.exe` 的 `pi32` 目录，通常为 `C:\JL\pi32`。FM1 继续使用 `r3` CPU 目标。
+可以在 **Windows** 或 **macOS／Linux** 上编译。两条路线执行相同的三种构建，输出到相同的文件夹：
 
-构建会按 `sdk/manifest.json` 校验全部 22 个工具链文件。旧版 V14 开发包固定使用 2.5.2，会拒绝 2.5.3；升级时请一并更新完整源码和 SDK 开发包，保留清单校验。本修订中 `pi32/bin/clang.exe` 的预期 SHA-256 为 `d4bc97cf421c1ccc373dd8924ce88720ff7457b3f1478d15df4aeda6ae923bce`。
+| 构建 | Windows | macOS / Linux |
+|---|---|---|
+| 固件及其升级包（`build/dx7/`） | `build.bat` | `./build.sh` |
+| 网页预览（`build/preview/index.html`） | `build.bat --web` | `./build.sh --web` |
+| 固件与完整工作台网页（`build/official-web/`） | `build.bat --package` | `./build.sh --package` |
 
-本地网页预览：
+**获取源码：直接克隆本仓库**，放在任意文件夹均可。下面所有命令都在仓库根目录（含 `build.bat` 的文件夹）中运行，不依赖仓库所在位置：
 
-~~~powershell
-.\tools\Build-Web.ps1 -LocalPreview
+~~~
+git -c core.autocrlf=false clone https://github.com/m-vave/fm1_open.git
+cd fm1_open
 ~~~
 
-正式分发前，先将 `FM1_SOURCE_URL` 设置为本次构建对应源码包的 HTTPS 地址，包内须含本次修改、许可声明及编译／安装脚本，然后执行：
+（`-c core.autocrlf=false` 可避免 Git 改动换行符：构建会逐字节校验 SDK 文件。）详细说明、故障排查，以及两条路线如何比对，见[构建指南](docs/BUILDING.md)（英文）。
+
+### 方案 A：Windows
+
+需要 Windows x64、PowerShell、`curl.exe` 和 `tar.exe`，以及 **杰理 Windows 工具链 2.5.3**（内含 PI32v2 clang 4.0.1；FM1 继续使用 `r3` CPU 目标）。构建会按 `sdk/manifest.json` 校验全部 22 个工具链文件；旧版 V14 开发包固定使用 2.5.2，会拒绝 2.5.3，升级时请一并更新完整源码和 SDK 开发包，并保留清单校验。杰理安装程序依赖 Code::Blocks，请按以下顺序安装工具链：
+
+1. 安装 [Code::Blocks](https://www.codeblocks.org/downloads/binaries/)。
+2. 启动一次 Code::Blocks，然后**彻底关闭**：只关窗口不够，请在任务管理器中结束所有 `codeblocks.exe` 进程。
+3. [下载杰理 2.5.3 安装包](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe)并运行，保持默认目录 `C:\JL`。杰理官方的[安装指南](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html)（中文）可作参考。
+
+本版本 `pi32/bin/clang.exe` 的预期 SHA-256 为 `d4bc97cf421c1ccc373dd8924ce88720ff7457b3f1478d15df4aeda6ae923bce`。然后在 PowerShell 中、于仓库根目录执行：
 
 ~~~powershell
-.\build.bat --web
 $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
-.\build.bat --package
+.\build.bat                  # 固件
+.\build.bat --web            # 网页预览
+$env:FM1_SOURCE_URL = "https://github.com/<你的账号>/fm1_open/archive/$(git rev-parse HEAD).zip"
+.\build.bat --package        # 固件与完整工作台网页
 ~~~
 
-仅在本地编译固件、不制作分发包时，可执行 `./sdk/Build.ps1 -FirmwareOnly -Toolchain 'C:\JL\pi32'`，无需设置分发源码地址。GitHub 上持续变化的 `tree/main` 页面不能代替对应构建的源码归档。
+首次执行 `--package` 会下载 WASI SDK 27（可设置 `FM1_WASI_SDK` 复用已有安装）。仅在本地编译固件、不制作分发包时，可执行 `./sdk/Build.ps1 -FirmwareOnly -Toolchain 'C:\JL\pi32'`，无需设置分发源码地址。
 
-网页由附带的 C 源码编译。首次编译会下载 WASI SDK 27，可设置 `FM1_WASI_SDK` 复用已有安装。输出为 `build/preview/index.html`、`build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` 和 `build/official-web/FM1-Official-Open-Source.html`。
+### 方案 B：macOS 与 Linux（Docker）
+
+需要 Docker 和 Node 18 或更新版本，无需 PowerShell，也无需 Windows。在仓库根目录执行：
+
+~~~bash
+./build.sh --setup            # 仅需一次：下载杰理 Linux 工具链（26 MB）和 WASI SDK 27，均校验哈希
+./build.sh                    # 固件：编译、SDK 检查、生成升级包
+./build.sh --web              # 网页预览
+./build.sh --package --source-url "https://github.com/<你的账号>/fm1_open/archive/$(git rev-parse HEAD).zip"
+~~~
+
+它在容器中使用与 Windows 路线相同的编译器版本（clang 4.0.1）、相同的编译参数和相同的检查，约需 20 秒。Windows 构建仍是基准；已做过哪些比对见[构建指南](docs/BUILDING.md#how-the-two-routes-compare)。
+
+### 分发构建
+
+正式分发时，`FM1_SOURCE_URL`（或 `--source-url`）须为本次构建对应源码包的 HTTPS 地址，包内须含本次修改、许可声明及编译／安装脚本。GitHub 上持续变化的 `tree/main` 页面不是对应的源码包。
 
 [逐轨调音接口](app/instrument.h)支持自定义调音，暂未提供专用调音编辑界面。
 

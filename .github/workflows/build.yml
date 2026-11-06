@@ -1,0 +1,92 @@
+# Builds the firmware, the browser preview and the complete workbench page on GitHub's own runner, with no software installed
+# anywhere else, so that every build comes visibly from the source code in this repository. It is the Docker route of
+# docs/BUILDING.md (Option B): ./build.sh, which uses JieLi's Linux toolchain in a container and the WASI SDK, both downloaded
+# by ./build.sh --setup and checked against pinned SHA-256 hashes (a changed toolchain stops the build, it does not change the result).
+#
+#   every push and pull request   builds, and keeps the results as a build artifact for 30 days
+#   a tag "v..."                  also attaches the package and the page to a GitHub release, with a build attestation:
+#                                 gh attestation verify FM1_OFFICIAL_OPEN.fwsc --repo <owner>/<repo>
+#
+# The Windows build (build.bat) stays the reference; it needs JieLi's Windows installer and cannot run here.
+name: build
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Cache the toolchain and the WASI SDK
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/fm1-open
+          key: fm1-open-${{ runner.os }}-${{ hashFiles('tools/docker/toolchain.json', 'tools/portable/fetch-wasi-sdk.sh') }}
+      - name: One-time downloads (JieLi's Linux toolchain and the WASI SDK, hash-checked)
+        run: ./build.sh --setup
+      - name: Build the firmware, the package and the workbench page
+        env:
+          # the page embeds the address of the source archive it was built from: the commit of this run (of the fork, for a pull request)
+          SOURCE_URL: https://github.com/${{ github.event.pull_request.head.repo.full_name || github.repository }}/archive/${{ github.event.pull_request.head.sha || github.sha }}.zip
+        run: ./build.sh --package --source-url "$SOURCE_URL" 2>&1 | tee build.log
+        shell: bash
+      - name: Build the browser preview
+        run: ./build.sh --web
+      - name: What was built
+        run: |
+          {
+            echo "### Build of ${GITHUB_SHA::12}"
+            echo
+            echo '```'
+            grep -E "app image|Offline package|^sha256|Integrated" build.log || true
+            sha256sum build/dx7/generated/*.fwsc build/official-web/*.html build/preview/index.html
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Collect the results
+        run: |
+          mkdir out
+          cp build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc build/official-web/FM1-Official-Open-Source.html out/
+          cp build/preview/index.html out/FM1-preview.html
+          cp build/dx7/build-identity.json build/dx7/firmware-report.json out/
+          (cd out && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: fm1-open-${{ github.sha }}
+          path: out
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    # only for a tag, and with the permissions it needs: the build above runs with none of them
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write        # the release
+      id-token: write        # the signing identity of the attestation
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: fm1-open-${{ github.sha }}
+          path: out
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            out/FM1_OFFICIAL_OPEN.fwsc
+            out/FM1-Official-Open-Source.html
+      - uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8   # v2.3.2
+        with:
+          files: out/*          # everything SHA256SUMS lists
+          generate_release_notes: true

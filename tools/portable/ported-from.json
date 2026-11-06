@@ -1,0 +1,8 @@
+{
+  "note": "SHA-256 of the files that tools/docker (gates.mjs, container-build.sh) and tools/portable (fwsc.mjs, page.mjs) were ported from. When one of them changes, the port may no longer do what the original does: read the change, update the port, check the result against a Windows build with tools/portable/elf-compare.mjs, then update this file. FM1_ALLOW_UNSYNCED=1 builds anyway.",
+  "files": {
+    "sdk/Build.ps1": "cd941fe58ac5203b19b64dd0c9d050aca282af601426b34c498f0a8c55ef0b45",
+    "sdk/Package.cs": "1073026536b64f0d90a60f1a4229703a7fd8d2eaefee2310d8161a4dabdbe2dd",
+    "tools/Build-Web.ps1": "d69cb0b9ea9f6a8bc05600b0f376760aabba19d8d4b9c0f5410e7a8662fc9997"
+  }
+}

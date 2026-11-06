@@ -37,27 +37,69 @@ The eight sample slots share about 19.55 seconds of new sample storage. Existing
 
 ## Build
 
-Requires Windows x64, PowerShell, `curl.exe` and `tar.exe`. Firmware builds require **JieLi Windows toolchain 2.5.3**, which includes PI32v2 clang 4.0.1. [Download the 2.5.3 installer from JieLi](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe) and follow the [installation guide](https://doc.zh-jieli.com/Tools/zh-cn/dev_tools/dev_env/jl_toolchain.html). Set `FM1_PI32_TOOLCHAIN` to its `pi32` folder containing `bin/clang.exe` (normally `C:\JL\pi32`). FM1 continues to use the `r3` CPU target.
+You can build on **Windows** or on **macOS and Linux**. The two routes make the same three builds, in the same folders:
 
-The build checks all 22 toolchain files against `sdk/manifest.json`. Older V14 kits were pinned to 2.5.2 and reject 2.5.3; update the complete source + SDK kit together, keeping the manifest checks enabled. For this revision, the expected SHA-256 of `pi32/bin/clang.exe` is `d4bc97cf421c1ccc373dd8924ce88720ff7457b3f1478d15df4aeda6ae923bce`.
+| Build | Windows | macOS / Linux |
+|---|---|---|
+| Firmware and its package (`build/dx7/`) | `build.bat` | `./build.sh` |
+| Browser preview (`build/preview/index.html`) | `build.bat --web` | `./build.sh --web` |
+| Firmware and the complete workbench page (`build/official-web/`) | `build.bat --package` | `./build.sh --package` |
 
-For a local web preview:
+**Get the source by cloning the repository** into any folder, and run every command below from its root (the folder that
+contains `build.bat`); nothing depends on where it is:
 
-~~~powershell
-.\tools\Build-Web.ps1 -LocalPreview
+~~~
+git -c core.autocrlf=false clone https://github.com/m-vave/fm1_open.git
+cd fm1_open
 ~~~
 
-For distribution builds, first set `FM1_SOURCE_URL` to the HTTPS URL of the matching source archive, including your changes, licenses and build/install scripts. Then run:
+(`-c core.autocrlf=false` keeps Git from changing line endings: the build checks the SDK files byte for byte.) The
+[build guide](docs/BUILDING.md) has the details, the troubleshooting tables and how the two routes were compared.
+
+### Option A: Windows
+
+Requires Windows x64 and PowerShell, `curl.exe` and `tar.exe`, and **JieLi Windows toolchain 2.5.3** (PI32v2 clang 4.0.1; FM1 continues
+to use the `r3` CPU target). The build checks all 22 toolchain files against `sdk/manifest.json`; older V14 kits were pinned to 2.5.2 and
+reject 2.5.3, so update the complete source + SDK kit together and keep the manifest checks enabled. JieLi's installer needs
+Code::Blocks, so install the toolchain in this order:
+
+1. Install [Code::Blocks](https://www.codeblocks.org/downloads/binaries/).
+2. Start Code::Blocks once, then **close it completely**: end every `codeblocks.exe` in Task Manager.
+3. Download and run [JieLi's 2.5.3 installer](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe) and keep the default folder, `C:\JL`.
+
+For this revision the expected SHA-256 of `pi32/bin/clang.exe` is `d4bc97cf421c1ccc373dd8924ce88720ff7457b3f1478d15df4aeda6ae923bce`.
+Then, in PowerShell from the repository root:
 
 ~~~powershell
-.\build.bat --web
 $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
-.\build.bat --package
+.\build.bat                  # firmware
+.\build.bat --web            # browser preview
+$env:FM1_SOURCE_URL = "https://github.com/<you>/fm1_open/archive/$(git rev-parse HEAD).zip"
+.\build.bat --package        # firmware and the complete workbench page
 ~~~
 
-For a local firmware build without a distribution source URL, run `./sdk/Build.ps1 -FirmwareOnly -Toolchain 'C:\JL\pi32'`. A moving GitHub `tree/main` page is not a matching source archive for distribution.
+The first `--package` downloads WASI SDK 27 (set `FM1_WASI_SDK` to reuse an installation). For a local firmware build without a
+distribution source URL, run `./sdk/Build.ps1 -FirmwareOnly -Toolchain 'C:\JL\pi32'`.
 
-The web version builds from the included C sources. Its first build downloads WASI SDK 27; set `FM1_WASI_SDK` to reuse an installation. Outputs are `build/preview/index.html`, `build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` and `build/official-web/FM1-Official-Open-Source.html`.
+### Option B: macOS and Linux (Docker)
+
+Requires Docker and Node 18 or newer. Nothing else: no PowerShell, no Windows. From the repository root:
+
+~~~bash
+./build.sh --setup            # once: JieLi's Linux toolchain (26 MB) and WASI SDK 27, both hash-checked
+./build.sh                    # firmware: build, the SDK's checks, package
+./build.sh --web              # browser preview
+./build.sh --package --source-url "https://github.com/<you>/fm1_open/archive/$(git rev-parse HEAD).zip"
+~~~
+
+It uses the same compiler release (clang 4.0.1) and the same flags and checks as the Windows route, in a container, and takes
+about 20 seconds. The Windows build stays the reference; [docs/BUILDING.md](docs/BUILDING.md#how-the-two-routes-compare) says what
+has been compared.
+
+### Distribution builds
+
+For a build you distribute, `FM1_SOURCE_URL` (or `--source-url`) must be the HTTPS URL of the matching source archive, including your
+changes, licenses and build/install scripts. A moving GitHub `tree/main` page is not a matching source archive.
 
 The [per-track tuning API](app/instrument.h) supports custom tuning; a dedicated tuning editor is not included.
 
