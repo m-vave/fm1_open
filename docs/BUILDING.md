@@ -141,6 +141,30 @@ have not been run by the authors; please report what you find.
 
 ---
 
+## Builds on GitHub
+
+You do not have to install anything to get a build: [`.github/workflows/build.yml`](../.github/workflows/build.yml) runs Option B
+(`./build.sh --setup`, `./build.sh --package`, `./build.sh --web`) on GitHub's Ubuntu runner for every push and pull request, and it
+works in a fork too (enable Actions in the fork's *Actions* tab). So a build comes from the source in the repository, by a script
+anyone can read, and not from somebody's computer.
+
+- **Results.** The run's page lists the package, the workbench page, the preview, `SHA256SUMS`, `build-identity.json` and
+  `firmware-report.json` as an artifact (kept for 30 days); the run summary shows the app-image size and the hashes. The page
+  embeds the address of the source archive of the commit it was built from (for a pull request: of the pull request's head).
+- **Releases.** Pushing a tag `v...` also attaches `FM1_OFFICIAL_OPEN.fwsc`, `FM1-Official-Open-Source.html` and `SHA256SUMS` to
+  a GitHub release and signs a build attestation for the two files, in a separate job that is the only one with write permissions.
+  To check a downloaded file against the repository it came from:
+
+  ```
+  gh attestation verify FM1_OFFICIAL_OPEN.fwsc --repo <owner>/<repo>
+  ```
+
+- **What it does not replace.** The Windows build stays the reference ([how the routes compare](#how-the-two-routes-compare)); its
+  installer needs a person at a Windows PC, so it is not part of this workflow. The toolchain and the WASI SDK are downloaded and
+  checked against pinned SHA-256 hashes: if JieLi publishes a changed toolchain the build stops with a hash error, it does not
+  silently build with something else. Builds of a pull request from a fork run with a read-only token and cannot create
+  attestations; only a tag in this repository does.
+
 ## How the two routes compare
 
 The Docker route is a port: it must produce what the Windows route produces, and that is checked rather than assumed.
