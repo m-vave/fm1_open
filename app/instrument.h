@@ -278,6 +278,7 @@ unsigned groove_drum_note(unsigned drum);
 int groove_drum_index(unsigned note);
 void groove_screen_init(void);
 void groove_screen_control(void);
+void groove_screen_mirror_hello(unsigned all); /* SysEx hook: keep mirroring the screen, on the port that asked. */
 
 /* Control-side editing. Undo swaps one complete snapshot; no audio allocation. */
 void groove_edit_init(void);
