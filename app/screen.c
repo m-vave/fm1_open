@@ -159,7 +159,7 @@ static uint8_t midi_active[8];
 static unsigned track, cursor, selected_note = 60, drum, writing, page, fm_group, op;
 static unsigned music_page, subpage_return, project_return, rec_before_press, effects_page;
 static unsigned seq_page, arp_page;
-static unsigned boot_active, boot_phase;
+static unsigned boot_active;
 static uint32_t boot_started;
 static const char *const seq_pages[] = {"1/8 BASIC", "2/8 STEP DETAILS", "3/8 RHYTHM/REC", "4/8 LOCKS", "5/8 SYNC / LOOP", "6/8 MIDI TRACK", "7/8 MIDI ROUTING", "8/8 TRACK ROLE"};
 static unsigned rec_down, rec_used;
@@ -1337,20 +1337,12 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
 }
 static __attribute__((noinline, cold, minsize)) void boot_draw(void)
 {
-    if (cache->title_cache != 0) {
-        cache->title_cache = 0;
-        text(86, 48, "FM1", 4, TEXT, BACK);
-        text(81, 98, "OFFICIAL OPEN", 1, ACCENT, BACK);
-        text((240 - 12 * (sizeof FM1_RELEASE_VERSION - 1)) / 2, 120,
-             FM1_RELEASE_VERSION, 2, TEXT, BACK);
-        text(102, 208, "M-VAVE", 1, DIM, BACK);
-    }
-    if (cache->middle_cache == boot_phase) return;
-    cache->middle_cache = boot_phase;
-    static const uint8_t height[8] = {8, 18, 30, 42, 42, 30, 18, 8};
-    for (unsigned i = 0; i < 8; ++i)
-        paint_fill(58 + 16 * i, 166 - height[i] / 2, 12, height[i],
-                   i < boot_phase ? colors[i] : PANEL);
+    if (cache->title_cache == 0) return;
+    cache->title_cache = 0;
+    text(86, 48, "FM1", 4, TEXT, BACK);
+    text(81, 98, "OFFICIAL OPEN", 1, ACCENT, BACK);
+    text((240 - 12 * (sizeof FM1_RELEASE_VERSION - 1)) / 2, 120,
+         FM1_RELEASE_VERSION, 2, TEXT, BACK);
 }
 static void draw_page_body(const struct fm1_ble_status *ble)
 {
@@ -1594,10 +1586,6 @@ static void draw(const struct fm1_ble_status *ble)
 {
     unsigned visible = glo_down && glo_used ? MIX : page;
     frame_time = fm1_millis();
-    if (boot_active) {
-        boot_phase = (frame_time - boot_started) / 120U;
-        if (boot_phase > 8) boot_phase = 8;
-    }
     if (notice && (int32_t)(frame_time - notice_until) >= 0) notice = NULL;
     for (unsigned t = 0; t < 8; ++t) {
         unsigned n = groove_midi_activity(t);
@@ -1646,6 +1634,78 @@ static void draw(const struct fm1_ble_status *ble)
     cache = &saved_cache;
     draw_page(&frame_ble);
 }
+/* Screen mirror: while a computer asks for it, every band sent to the LCD is
+ * also sent out over MIDI, on the port that asked (USB or Bluetooth), so the screen can be shown big (for players
+ * who can't read a 1.54-inch display). The computer sends F0 7D 'F' 'S' 00 F7
+ * about once a second (01 instead of 00: and the whole screen again, please);
+ * streaming stops three seconds after the last one.
+ * Each band row goes out as F0 7D 'F' 'S' 01 row col <runs> F7 (row and col
+ * 0-127 or, from 128, +128 in a second byte: always two bytes each), each run
+ * four bytes: count 1-127, then the RGB565 colour as bits 0-6, 7-13, 14-15.
+ * Messages stay small because the SDK's USB output queue is shared with note
+ * output (FM-1 Mirror, github.com/pfkellogg/fm1-mirror, shows them; MIT licensed). While the buffer is too full for a band, the LCD waits for it too,
+ * so nothing is missed. Flash is nearly full: this is kept as small as it can be,
+ * and the boot logo lost its growing bars and its "M-VAVE" line to make room. */
+enum { MIRROR_BUFFER = 16384, MIRROR_MESSAGE = 70, MIRROR_TIMEOUT = 3000 };
+static uint8_t mirror_buffer[MIRROR_BUFFER];
+static unsigned mirror_length, mirror_sent, mirror_on, mirror_hello, mirror_port;
+static uint32_t mirror_heard;
+/* Called in the control task (the SysEx hook), which then polls the screen.
+ * F0 7D 'F' 'S' 01 F7 also asks for the whole screen again (a viewer that
+ * has just joined while another kept the mirror on). */
+void groove_screen_mirror_hello(unsigned all) { mirror_hello = 1 + all; mirror_port = fm1_midi_input_source(); } /* all: 0 or 1 */
+/* The band just composed in paint_pixels, before the LCD transfer swaps it.
+ * 0: no room yet, paint it later. A band bigger than the whole buffer is sent
+ * as far as it fits rather than holding the LCD up for ever. */
+static __attribute__((minsize)) int mirror_band(unsigned band, unsigned left, unsigned width)
+{
+    unsigned before = mirror_length;
+    const uint16_t *px = paint_pixels;
+    for (unsigned row = 0; row < PAINT_ROWS; ++row, px += width)
+        for (unsigned i = 0; i < width;) {
+            /* Room for a whole message (length byte first), or wait. */
+            if (mirror_length + 1 + MIRROR_MESSAGE > MIRROR_BUFFER) {
+                if (!before) return 1;
+                mirror_length = before;
+                return 0;
+            }
+            uint8_t *out = mirror_buffer + mirror_length;
+            unsigned y = band * PAINT_ROWS + row, x = left + i, k = 10;
+            memcpy(out + 1, "\xf0\x7d" "FS\x01", 5);
+            out[6] = (uint8_t)(y & 127U); out[7] = (uint8_t)(y >> 7);
+            out[8] = (uint8_t)(x & 127U); out[9] = (uint8_t)(x >> 7);
+            for (; i < width && k + 5 <= MIRROR_MESSAGE; k += 4) {
+                unsigned run = 1, c = px[i];
+                while (i + run < width && run < 127 && px[i + run] == c) ++run;
+                out[k] = (uint8_t)run;
+                out[k + 1] = (uint8_t)(c & 127U);
+                out[k + 2] = (uint8_t)((c >> 7) & 127U);
+                out[k + 3] = (uint8_t)(c >> 14);
+                i += run;
+            }
+            out[k] = 0xf7;
+            out[0] = (uint8_t)k;
+            mirror_length += 1 + k;
+        }
+    return 1;
+}
+static __attribute__((minsize)) void mirror_poll(uint32_t now)
+{
+    if (mirror_hello) {
+        mirror_heard = now;
+        if (!mirror_on || mirror_hello > 1) saved_cache.shown_page = ~0U; /* send the whole screen */
+        mirror_hello = 0;
+        mirror_on = 1;
+    }
+    if (now - mirror_heard >= MIRROR_TIMEOUT) mirror_on = 0;
+    while (mirror_on && mirror_sent < mirror_length) {
+        int r = fm1_midi_send_port(mirror_port, mirror_buffer + mirror_sent + 1, mirror_buffer[mirror_sent]);
+        if (r == -2) { fm1_control_request(); return; } /* more to send: come back soon */
+        /* Any other failure (the port went away) drops the message; the viewer's hellos stop, and so does this. */
+        mirror_sent += 1U + mirror_buffer[mirror_sent];
+    }
+    mirror_length = mirror_sent = 0;
+}
 static void paint_flush(void)
 {
     uint32_t started = fm1_millis();
@@ -1673,6 +1733,7 @@ static void paint_flush(void)
         paint_end = left + width;
         memset(cache, 0xff, sizeof *cache);
         draw_page(&frame_ble);
+        if (mirror_on && !mirror_band(band, left, width)) break;
         /* Rasterize directly into the tightly packed DMA rectangle. */
         if (fm1_screen_submit(left, paint_top, width, PAINT_ROWS,
                             paint_pixels, width * PAINT_ROWS)) {
@@ -2566,6 +2627,7 @@ void groove_screen_control(void)
     struct fm1_controls controls;
     fm1_controls_read(&controls);
     uint32_t now = fm1_millis(), key_down = controls.keys & ~previous_keys;
+    mirror_poll(now);
     unsigned master_changed = groove_master_update(controls.knob);
     if (master_changed && (!notice || notice == master_notice || (int32_t)(now - notice_until) >= 0)) {
         unsigned level = fm1_engine_output_level();
