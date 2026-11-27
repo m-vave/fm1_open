@@ -1,0 +1,52 @@
+# Builds the FM-1 firmware on a Windows machine in the cloud, so it can be
+# developed from a Mac. Download the "fm1-firmware" artifact from the run,
+# open the HTML file in Chrome or Edge, and flash from there.
+name: Build firmware
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JieLi toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:\JL
+            C:\JL_extract
+          key: jieli-2.5.3-v1
+
+      - name: Cache WASI SDK
+        uses: actions/cache@v4
+        with:
+          path: build/tools
+          key: wasi-sdk-27-v1
+
+      - name: Install JieLi toolchain
+        id: jieli
+        shell: pwsh
+        run: ./.github/scripts/Install-JieLi.ps1
+
+      - name: Build firmware and flasher page
+        shell: pwsh
+        env:
+          FM1_PI32_TOOLCHAIN: ${{ steps.jieli.outputs.pi32 }}
+          # GPL: the flasher page links to the exact source it was built from.
+          FM1_SOURCE_URL: https://github.com/${{ github.repository }}/archive/${{ github.sha }}.tar.gz
+        run: ./sdk/Build.ps1 -Package
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm1-firmware
+          path: |
+            build/official-web/*.html
+            build/dx7/generated/*.fwsc
+            build/dx7/package-report.json
+          if-no-files-found: error

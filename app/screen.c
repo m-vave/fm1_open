@@ -1335,15 +1335,21 @@ static __attribute__((noinline)) void edit_page_draw(unsigned visible)
         text(8, 231, "EDIT BACK  HOLD EDIT MORE", 1, DIM, BACK);
     }
 }
+/* Boot screen text. Change these to rebrand the startup screen. The font has
+ * digits, A-Z and some punctuation; at size 4 a line fits 10 characters. */
+#define BOOT_LINE_1 "MONKEY"
+#define BOOT_LINE_2 "JEDI"
+#define BOOT_FOOTER "ON M-VAVE FM1 OPEN"
+/* x that centers a string literal drawn at the given text scale. */
+#define BOOT_CENTER(s, scale) ((240U - 6U * (scale) * (sizeof(s) - 1U)) / 2U)
 static __attribute__((noinline, cold, minsize)) void boot_draw(void)
 {
     if (cache->title_cache != 0) {
         cache->title_cache = 0;
-        text(86, 48, "FM1", 4, TEXT, BACK);
-        text(81, 98, "OFFICIAL OPEN", 1, ACCENT, BACK);
-        text((240 - 12 * (sizeof FM1_RELEASE_VERSION - 1)) / 2, 120,
-             FM1_RELEASE_VERSION, 2, TEXT, BACK);
-        text(102, 208, "M-VAVE", 1, DIM, BACK);
+        text(BOOT_CENTER(BOOT_LINE_1, 4), 36, BOOT_LINE_1, 4, TEXT, BACK);
+        text(BOOT_CENTER(BOOT_LINE_2, 4), 72, BOOT_LINE_2, 4, ACCENT, BACK);
+        text(BOOT_CENTER(FM1_RELEASE_VERSION, 2), 116, FM1_RELEASE_VERSION, 2, DIM, BACK);
+        text(BOOT_CENTER(BOOT_FOOTER, 1), 208, BOOT_FOOTER, 1, DIM, BACK);
     }
     if (cache->middle_cache == boot_phase) return;
     cache->middle_cache = boot_phase;
